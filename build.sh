@@ -20,7 +20,10 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>LSUIElement</key><true/>
 </dict></plist>
 PLIST
-codesign --force --sign - "$APP" >/dev/null 2>&1 || true
+# Mit dem Apple-Development-Zertifikat signieren: Ad-hoc-Signaturen ändern sich bei jedem Build, und macOS
+# vergisst dann die Freigaben (Bildschirmaufnahme, Automation). Ohne Zertifikat bleibt es bei ad-hoc.
+SIGN_ID=$(security find-identity -v -p codesigning | awk -F'"' '/Apple Development/ { print $2; exit }')
+codesign --force --sign "${SIGN_ID:--}" "$APP" >/dev/null 2>&1 || true
 
 cat > "$AGENT" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

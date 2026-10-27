@@ -25,6 +25,7 @@ final class Brain {
     let store: Store
     let works: Works
     let feedback: FeedbackWatch
+    let triage = Triage()
     private(set) var items: [Attention] = []
     private(set) var summary = "Gerade braucht dich nichts."
     private(set) var list: [Work] = []
@@ -34,15 +35,32 @@ final class Brain {
         self.works = works
         self.feedback = feedback
         works.feedback = { [weak feedback] in feedback?.items ?? [] }
+        triage.onUpdate = { [weak self] in self?.refresh() }
         Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in self?.refresh() }
     }
 
     func refresh() {
         list = works.all()
         items = build()
+        triage.update(items.filter { $0.who == .you }, context: context,
+                      active: Date().timeIntervalSince(store.lastActivity) < 30 * 60)
         summary = summarize(items)
         announce()
         export()
+    }
+
+    func rank(_ a: Attention) -> Triage.Rank { a.who == .you ? triage.rank(a) : .later }
+
+    /// „Du bist dran“ ohne das, was Haiku als Rauschen eingestuft hat.
+    var forYou: [Attention] { items.filter { $0.who == .you && rank($0) != .hidden } }
+
+    /// Was Haiku zum Einordnen über die Phrase hinaus wissen sollte.
+    private func context(_ a: Attention) -> String {
+        var parts: [String] = []
+        if let t = a.workKey.flatMap({ work($0)?.ticket }), !t.status.isEmpty { parts.append("Ticket \(t.status)") }
+        if let f = a.feedback { parts.append("Feedback geändert \(ago(f.changed))") }
+        if let id = a.session, let s = store.sessions[id] { parts.append("Session zuletzt \(ago(s.updated))") }
+        return parts.joined(separator: ", ")
     }
 
     private var exported = ""
@@ -51,7 +69,7 @@ final class Brain {
     private func export() {
         let who = ["du", "andere", "automatisch"]
         let out: [String: Any] = ["summary": summary,
-                                  "items": items.map { ["wer": who[$0.who.rawValue], "text": $0.phrase, "icon": $0.icon] }]
+                                  "items": items.map { ["wer": who[$0.who.rawValue], "text": $0.phrase, "icon": $0.icon, "prio": rank($0).rawValue] }]
         guard let data = try? JSONSerialization.data(withJSONObject: out, options: [.sortedKeys, .prettyPrinted]),
               let text = String(data: data, encoding: .utf8), text != exported else { return }
         exported = text
@@ -214,11 +232,31 @@ final class Brain {
 
     /// „Fred braucht eine Antwort. Zwei Pipelines laufen. Der Rest kann warten.“
     private func summarize(_ items: [Attention]) -> String {
-        let you = items.filter { $0.who == .you }
+        let you = items.filter { $0.who == .you && rank($0) != .hidden }
         let others = items.filter { $0.who == .others }
         let auto = items.filter { $0.who == .auto }
         var parts: [String] = []
+        if let sentence = triage.sentence(for: items.filter { $0.who == .you }) {
+            parts.append(sentence)
+        } else {
+            parts += rulesSummary(you)
+        }
 
+        func count(_ group: String, _ one: String, _ many: (String) -> String, feminine: Bool) {
+            let n = auto.filter { $0.group == group }.count
+            if n == 1 { parts.append(one) } else if n > 1 { parts.append(many(capitalized(numberWord(n, feminine: feminine)))) }
+        }
+        count("pipeline", "Eine Pipeline läuft.", { "\($0) Pipelines laufen." }, feminine: true)
+        count("agent", "Ein Agent arbeitet.", { "\($0) Agenten arbeiten." }, feminine: false)
+        count("feedback", "Ein Feedback wird umgesetzt.", { "\($0) Feedbacks werden umgesetzt." }, feminine: false)
+        if !others.isEmpty && !you.isEmpty {
+            if !parts.joined().contains("Rest kann warten") { parts.append("Der Rest kann warten.") }
+        } else if !others.isEmpty { parts.append(others.count == 1 ? "Eine Sache liegt bei anderen." : "\(capitalized(numberWord(others.count, feminine: true))) Sachen liegen bei anderen.") }
+        return parts.joined(separator: " ")
+    }
+
+    private func rulesSummary(_ you: [Attention]) -> [String] {
+        var parts: [String] = []
         let urgent = you.filter { !["done", "review", "look"].contains($0.group) }
         let reviews = you.filter { $0.group == "review" }
         let done = you.filter { $0.group == "done" }
@@ -232,16 +270,6 @@ final class Brain {
         if done.count == 1 { parts.append(done[0].phrase + ".") }
         if done.count > 1 { parts.append("\(capitalized(numberWord(done.count))) Sessions sind fertig.") }
         if you.isEmpty { parts.append("Gerade braucht dich nichts.") }
-
-        func count(_ group: String, _ one: String, _ many: (String) -> String, feminine: Bool) {
-            let n = auto.filter { $0.group == group }.count
-            if n == 1 { parts.append(one) } else if n > 1 { parts.append(many(capitalized(numberWord(n, feminine: feminine)))) }
-        }
-        count("pipeline", "Eine Pipeline läuft.", { "\($0) Pipelines laufen." }, feminine: true)
-        count("agent", "Ein Agent arbeitet.", { "\($0) Agenten arbeiten." }, feminine: false)
-        count("feedback", "Ein Feedback wird umgesetzt.", { "\($0) Feedbacks werden umgesetzt." }, feminine: false)
-        if !others.isEmpty && !you.isEmpty { parts.append("Der Rest kann warten.") }
-        else if !others.isEmpty { parts.append(others.count == 1 ? "Eine Sache liegt bei anderen." : "\(capitalized(numberWord(others.count, feminine: true))) Sachen liegen bei anderen.") }
-        return parts.joined(separator: " ")
+        return parts
     }
 }

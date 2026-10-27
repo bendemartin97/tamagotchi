@@ -316,11 +316,30 @@ final class PetView: NSView, NSTextFieldDelegate {
         item("Was braucht mich gerade?", #selector(showSummary))
         if let brain {
             let sections: [(Attention.Who, String)] = [(.you, "Du bist dran"), (.others, "Andere sind dran"), (.auto, "Läuft automatisch")]
+            func add(_ a: Attention, to m: NSMenu, indent: String = "   ") {
+                m.addItem(ActionItem("\(indent)\(a.icon) \(shorten(a.phrase, 70))") { [weak self] in self?.act(a) })
+            }
+            func folder(_ title: String, _ list: [Attention]) {
+                guard !list.isEmpty else { return }
+                let sub = NSMenu()
+                list.forEach { add($0, to: sub, indent: "") }
+                let parent = NSMenuItem(title: "   \(title) (\(list.count))", action: nil, keyEquivalent: "")
+                parent.submenu = sub
+                menu.addItem(parent)
+            }
             for (who, title) in sections {
                 let list = brain.items.filter { $0.who == who }
                 guard !list.isEmpty else { continue }
                 info(title)
-                for a in list.prefix(12) { menu.addItem(ActionItem("   \(a.icon) \(shorten(a.phrase, 70))") { [weak self] in self?.act(a) }) }
+                if who == .you {
+                    let now = list.filter { brain.rank($0) == .now }
+                    now.forEach { add($0, to: menu) }
+                    if now.isEmpty { info("   Nichts Dringendes") }
+                    folder("Kann warten", list.filter { brain.rank($0) == .later })
+                    folder("Ausgeblendet", list.filter { brain.rank($0) == .hidden })
+                    continue
+                }
+                for a in list.prefix(12) { add(a, to: menu) }
                 if list.count > 12 { info("   … und \(list.count - 12) weitere") }
             }
             let works = brain.list.filter { w in !w.changes.isEmpty || w.workspace != nil && brain.items.contains { $0.workKey == w.key } }
@@ -530,7 +549,7 @@ final class PetView: NSView, NSTextFieldDelegate {
         var parts = [f.string(from: Date()), sessions.isEmpty ? "keine aktiven Sessions" : sessions.joined(separator: "; ")]
         if let brain {
             parts.append("Was Martin braucht: \(brain.summary)")
-            let you = brain.items.filter { $0.who == .you }.map(\.phrase)
+            let you = brain.forYou.map(\.phrase)
             if !you.isEmpty { parts.append("Für Martin offen: " + you.prefix(8).joined(separator: "; ")) }
         }
         parts.append("Zuletzt geprüft: \(State.shared.checkedLine)")

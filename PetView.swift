@@ -6,7 +6,9 @@ final class PetView: NSView, NSTextFieldDelegate {
     let buddy: Buddy
     let vitals: Vitals
     let tasks: TaskRunner
-    var gitlab: GitLabWatch?
+    var brain: Brain?
+    /// Bis wann gefeiert wird (Abnahme, Merge, Ticket erledigt).
+    var partyUntil = Date.distantPast
 
     var tick = 0
     var petted = 0
@@ -18,6 +20,8 @@ final class PetView: NSView, NSTextFieldDelegate {
     var reply: (title: String?, text: String)?
     var replyUntil = Date.distantPast
     var pendingTask: String?
+    enum ChatMode { case chat, answer(FeedbackItem), rework(FeedbackItem) }
+    var chatMode = ChatMode.chat
 
     var walkEnabled = UserDefaults.standard.object(forKey: "walk") as? Bool ?? true
     var walkTarget: NSPoint?
@@ -61,7 +65,22 @@ final class PetView: NSView, NSTextFieldDelegate {
 
     var pose: PetPose {
         PetPose(mood: mood, t: tick - moodSince, tick: tick, petted: petted, hop: hop, walking: walking,
-                facing: facing, yawning: yawn > 0, hungry: vitals.hungry, grumpy: vitals.grumpy)
+                facing: facing, yawning: yawn > 0, hungry: vitals.hungry, grumpy: vitals.grumpy, prop: prop)
+    }
+
+    var prop: Prop {
+        if Date() < partyUntil { return .party }
+        guard let items = brain?.items else { return .none }
+        if mood == .waiting, let s = store.pending.first, s.mood == .waiting, s.isAgent { return .letter }
+        if items.contains(where: { $0.feedback?.status == .question }) && mood != .working { return .letter }
+        if (mood == .idle || mood == .working) && items.contains(where: { $0.group == "pipeline" }) { return .hourglass }
+        return .none
+    }
+
+    /// Überschrift der Sprechblase: bei Agent-Sessions Spitzname und Aufgabe, sonst die Aufgabe.
+    func bubbleTitle(_ s: Session) -> String {
+        let topic = brain?.topic(s) ?? s.label
+        return s.isAgent ? "\(store.name(for: s.id)) · \(topic)" : topic
     }
 
     private func step() {
@@ -85,7 +104,18 @@ final class PetView: NSView, NSTextFieldDelegate {
         drawPet(pose, at: petOrigin, px: px)
 
         let bottom = petOrigin.y - 6 * px - 8
-        if chatField != nil {
+        if let field = chatField {
+            let title: String?
+            switch chatMode {
+            case .chat: title = nil
+            case .answer(let f): title = "❓ \(f.headline)"
+            case .rework(let f): title = "🔁 \(f.headline)"
+            }
+            let body: String
+            if case .answer(let f) = chatMode { body = f.question.isEmpty ? "Was soll der Agent wissen?" : f.question }
+            else if case .rework = chatMode { body = "Was soll noch anders werden?" }
+            else { body = brain?.summary ?? "" }
+            if !body.isEmpty { drawBubble(in: bounds, bottom: field.frame.minY - 6, title: title, body: body, accent: Palette.body) }
             return
         } else if let reply {
             drawBubble(in: bounds, bottom: bottom, title: reply.title, body: reply.text,
@@ -94,7 +124,7 @@ final class PetView: NSView, NSTextFieldDelegate {
             let icon = s.icon.isEmpty ? (s.mood == .waiting ? "✋" : "✅") : s.icon
             let more = store.pending.count > 1 ? "  +\(store.pending.count - 1)" : ""
             let body = s.mood == .waiting && s.isAgent && !s.detail.isEmpty ? "will: \(s.detail)\n\(s.text)" : s.text
-            drawBubble(in: bounds, bottom: bottom, title: "\(icon) \(s.isAgent ? store.name(for: s.id) + " · " : "")\(s.label)\(more)", body: body,
+            drawBubble(in: bounds, bottom: bottom, title: "\(icon) \(bubbleTitle(s))\(more)", body: body,
                        accent: s.mood == .waiting ? Palette.alert : Palette.body)
         }
     }
@@ -256,8 +286,8 @@ final class PetView: NSView, NSTextFieldDelegate {
             tasks.start(task)
             showReply("Läuft. Ich sag Bescheid, wenn's durch ist.", seconds: 5)
         } else if let s = store.pending.first, reply == nil, chatField == nil {
-            performClick(s.click)
             store.ack(s.id)
+            if s.click.first == "-task", s.click.count == 2 { offerTask(s.click[1], text: s.text) } else { performClick(s.click) }
         } else if chatField != nil {
             closeChat()
         } else {
@@ -280,11 +310,34 @@ final class PetView: NSView, NSTextFieldDelegate {
             if let on { i.state = on ? .on : .off }
             menu.addItem(i)
         }
-        let working = store.sessions.values.filter { $0.mood == .working }.count
-        info("\(working) arbeiten · \(store.pending.count) offen")
         info("Futter \(vitals.dots(vitals.food))   Laune \(vitals.dots(vitals.joy))")
+        info(State.shared.checkedLine)
         menu.addItem(.separator())
-        item("Frag mich was …  (⌃⌥Leertaste)", #selector(openChat))
+        item("Was braucht mich gerade?", #selector(showSummary))
+        if let brain {
+            let sections: [(Attention.Who, String)] = [(.you, "Du bist dran"), (.others, "Andere sind dran"), (.auto, "Läuft automatisch")]
+            for (who, title) in sections {
+                let list = brain.items.filter { $0.who == who }
+                guard !list.isEmpty else { continue }
+                info(title)
+                for a in list.prefix(12) { menu.addItem(ActionItem("   \(a.icon) \(shorten(a.phrase, 70))") { [weak self] in self?.act(a) }) }
+                if list.count > 12 { info("   … und \(list.count - 12) weitere") }
+            }
+            let works = brain.list.filter { w in !w.changes.isEmpty || w.workspace != nil && brain.items.contains { $0.workKey == w.key } }
+            if !works.isEmpty {
+                let sub = NSMenu()
+                for w in works {
+                    let entry = NSMenuItem(title: w.topic + (w.ticket.map { $0.status.isEmpty ? "" : "  · \($0.status)" } ?? ""), action: nil, keyEquivalent: "")
+                    entry.submenu = workMenu(w)
+                    sub.addItem(entry)
+                }
+                let parent = NSMenuItem(title: "Aufgaben", action: nil, keyEquivalent: "")
+                parent.submenu = sub
+                menu.addItem(parent)
+            }
+        }
+        menu.addItem(.separator())
+        item("Frag mich was …  (⌃⌥Leertaste)", #selector(openChatAction))
         item("Neues Gespräch", #selector(newChat))
         item("Füttern", #selector(feed))
         menu.addItem(.separator())
@@ -297,6 +350,74 @@ final class PetView: NSView, NSTextFieldDelegate {
     }
 
     @objc func ackAll() { store.ackAll() }
+
+    @objc func showSummary() {
+        brain?.refresh()
+        showReply(brain?.summary ?? "Gerade braucht dich nichts.", title: "Was braucht dich gerade?", seconds: 15)
+    }
+
+    /// Vorbereiteten Auftrag zeigen; ein Klick auf die Blase startet ihn.
+    func offerTask(_ task: String, text: String) {
+        pendingTask = task
+        showReply(text.replacingOccurrences(of: " Klick = Ticket-Korrektur vorbereiten.", with: ""), title: "🛠 Korrigieren lassen? Klick = los", seconds: 45)
+    }
+
+    /// Hauptaktion eines Eintrags aus „Was braucht gerade mich?“.
+    func act(_ a: Attention) {
+        if let f = a.feedback {
+            switch f.status {
+            case .question: openChat(mode: .answer(f))
+            default: brain?.feedback.view(f)
+            }
+        } else if let task = a.task {
+            offerTask(task, text: a.phrase + ".")
+        } else if let id = a.session, let s = store.sessions[id] {
+            performClick(s.click)
+            if s.mood != .working { store.ack(id) }
+        } else if let url = a.url {
+            openURL(url)
+        }
+    }
+
+    /// Ticket, Workspace, Session und Änderungen einer Aufgabe.
+    func workMenu(_ w: Work) -> NSMenu {
+        let m = NSMenu()
+        if let t = w.ticket, !t.name.isEmpty {
+            let i = NSMenuItem(title: "\(shorten(t.name, 60)) · \(t.status)", action: nil, keyEquivalent: "")
+            i.isEnabled = false
+            m.addItem(i)
+        }
+        for (title, run) in brain?.works.actions(for: w) ?? [] { m.addItem(ActionItem(title, run)) }
+        return m
+    }
+
+    /// Kontextmenü eines Minis: Aufgabe plus Feedback-Aktionen für seine Session.
+    func sessionMenu(_ s: Session) -> NSMenu? {
+        guard let brain else { return nil }
+        let m = brain.work(forSession: s).map(workMenu) ?? NSMenu()
+        if !s.click.isEmpty { m.insertItem(ActionItem("Zur Session springen") { performClick(s.click) }, at: 0) }
+        for f in brain.feedback.items(forSession: s.id) where f.needsMartin {
+            m.addItem(.separator())
+            let head = NSMenuItem(title: "\(f.status == .question ? "❓" : "👀") \(f.headline)", action: nil, keyEquivalent: "")
+            head.isEnabled = false
+            m.addItem(head)
+            if f.status == .question { m.addItem(ActionItem("   Antworten …") { [weak self] in self?.openChat(mode: .answer(f)) }) }
+            m.addItem(ActionItem("   Ansehen") { brain.feedback.view(f) })
+            if f.status != .question {
+                m.addItem(ActionItem("   Passt") { [weak self] in
+                    brain.feedback.accept(f)
+                    self?.celebrate()
+                })
+                m.addItem(ActionItem("   Nachbessern …") { [weak self] in self?.openChat(mode: .rework(f)) })
+            }
+        }
+        return m
+    }
+
+    func celebrate(seconds: Double = 60) {
+        partyUntil = Date().addingTimeInterval(seconds)
+        hop = 6
+    }
 
     @objc func newChat() { buddy.reset(); reply = nil; pendingTask = nil }
 
@@ -324,10 +445,20 @@ final class PetView: NSView, NSTextFieldDelegate {
         if chatField != nil { closeChat() } else { reply = nil; pendingTask = nil; openChat() }
     }
 
-    @objc func openChat() {
-        guard chatField == nil else { return }
+    @objc func openChatAction() { openChat(mode: .chat) }
+
+    func openChat(mode: ChatMode = .chat) {
+        if chatField != nil { closeChat() }
+        reply = nil
+        pendingTask = nil
+        chatMode = mode
+        brain?.refresh()
         let f = NSTextField(frame: NSRect(x: 12, y: petRect.minY - 30, width: bounds.width - 24, height: 24))
-        f.placeholderString = "Na, was ist?"
+        switch mode {
+        case .chat: f.placeholderString = "Na, was ist?"
+        case .answer: f.placeholderString = "Antwort an den Agenten …"
+        case .rework: f.placeholderString = "Was soll nachgebessert werden?"
+        }
         f.font = .systemFont(ofSize: 12.5)
         f.bezelStyle = .roundedBezel
         f.focusRingType = .none
@@ -343,13 +474,27 @@ final class PetView: NSView, NSTextFieldDelegate {
     func closeChat() {
         chatField?.removeFromSuperview()
         chatField = nil
+        chatMode = .chat
         window?.resignKey()
     }
 
     @objc func sendChat() {
         let q = chatField?.stringValue.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let mode = chatMode
         closeChat()
         guard !q.isEmpty else { return }
+        switch mode {
+        case .answer(let f):
+            brain?.feedback.answer(f, text: q)
+            showReply("Weitergegeben. Der Agent macht weiter.", seconds: 5)
+            return
+        case .rework(let f):
+            brain?.feedback.rework(f, text: q)
+            showReply("Geht zurück an den Agenten.", seconds: 5)
+            return
+        case .chat:
+            break
+        }
         buddy.ask(q, situation: situation()) { [weak self] answer in
             guard let self else { return }
             self.vitals.joy += 0.2
@@ -380,13 +525,33 @@ final class PetView: NSView, NSTextFieldDelegate {
         f.dateFormat = "EEEE, HH:mm"
         let label: [Mood: String] = [.working: "arbeitet", .done: "fertig, ungelesen", .waiting: "wartet auf Martin"]
         let sessions = store.sessions.values.sorted { $0.updated > $1.updated }.map { s in
-            "\(s.label) \(label[s.mood] ?? "")\(s.icon.isEmpty ? "" : " " + s.icon) seit \(Int(Date().timeIntervalSince(s.updated) / 60)) min"
+            "\(bubbleTitle(s)) \(label[s.mood] ?? "")\(s.icon.isEmpty ? "" : " " + s.icon) seit \(Int(Date().timeIntervalSince(s.updated) / 60)) min"
         }
         var parts = [f.string(from: Date()), sessions.isEmpty ? "keine aktiven Sessions" : sessions.joined(separator: "; ")]
-        if let mr = gitlab?.summary, !mr.isEmpty { parts.append(mr) }
+        if let brain {
+            parts.append("Was Martin braucht: \(brain.summary)")
+            let you = brain.items.filter { $0.who == .you }.map(\.phrase)
+            if !you.isEmpty { parts.append("Für Martin offen: " + you.prefix(8).joined(separator: "; ")) }
+        }
+        parts.append("Zuletzt geprüft: \(State.shared.checkedLine)")
         parts.append("Haustier: Futter \(Int(vitals.food.rounded()))/5, Laune \(Int(vitals.joy.rounded()))/5")
         return parts.joined(separator: "; ")
     }
+}
+
+/// Menüeintrag mit Closure statt Selector.
+final class ActionItem: NSMenuItem {
+    private let handler: () -> Void
+
+    init(_ title: String, _ handler: @escaping () -> Void) {
+        self.handler = handler
+        super.init(title: title, action: #selector(fire), keyEquivalent: "")
+        target = self
+    }
+
+    required init(coder: NSCoder) { fatalError() }
+
+    @objc private func fire() { handler() }
 }
 
 func defaultOrigin(for size: NSSize) -> NSPoint {

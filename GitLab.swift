@@ -1,102 +1,172 @@
 import Foundation
 
-/// Fragt alle 3 Minuten per glab Martins offene MRs der letzten 14 Tage ab und meldet Wechsel:
-/// Pipeline rot / wieder grün, neuer Kommentar von jemand anderem, gemergt. Der erste Lauf merkt sich
-/// nur den Stand.
+/// Fragt alle 3 Minuten per glab Martins offene MRs, Review-Anfragen an ihn und kürzlich gemergte MRs ab.
+/// Der Stand liegt in state.json, Wechsel seit der letzten Abfrage (auch über einen Neustart hinweg) gehen als
+/// Signale an den Notifier.
 final class GitLabWatch {
-    struct MR { var pid: Int; var iid: Int; var title: String; var url: String; var project: String; var pipeline: String; var notes: Int }
-
-    let store: Store
-    var onEvent: ((String) -> Void)?
-    private var known: [String: MR]?
+    var onSignals: (([Signal]) -> Void)?
     private var me: String?
     private var running = false
-    /// Kurzfassung für die [Lage]-Zeile im Chat (nur auf dem Main-Thread lesen).
-    private(set) var summary = ""
 
-    init(store: Store) {
-        self.store = store
+    init() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) { self.poll() }
         Timer.scheduledTimer(withTimeInterval: 180, repeats: true) { [weak self] _ in self?.poll() }
     }
 
-    private func glab(_ path: String) -> Any? {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/glab")
-        p.arguments = ["api", path]
-        let out = Pipe()
-        p.standardOutput = out
-        p.standardError = Pipe()
-        guard (try? p.run()) != nil else { return nil }
-        let data = out.fileHandleForReading.readDataToEndOfFile()
-        p.waitUntilExit()
-        return p.terminationStatus == 0 ? try? JSONSerialization.jsonObject(with: data) : nil
-    }
+    private func glab(_ path: String) -> Any? { json(cli("/opt/homebrew/bin/glab", ["api", path])) }
 
     private func poll() {
         guard !running else { return }
         running = true
+        let before = State.shared.data.changes.filter { $0.value.host == "gitlab" }
+        let baseline = State.shared.data.checked["gitlab"] == nil
         DispatchQueue.global(qos: .utility).async {
-            let alerts = self.check()
-            let red = (self.known ?? [:]).values.filter { $0.pipeline == "failed" }.map(\.project)
-            let summary = self.known.map { "\($0.count) offene MRs" + (red.isEmpty ? "" : ", Pipeline rot: " + red.joined(separator: ", ")) } ?? ""
+            let result = self.check(before)
             DispatchQueue.main.async {
                 self.running = false
-                self.summary = summary
-                for (kind, s) in alerts {
-                    self.store.post(s)
-                    self.onEvent?(kind)
-                }
+                guard let (changes, signals) = result else { return }
+                for (k, c) in changes { State.shared.data.changes[k] = c }
+                State.shared.checked("gitlab")
+                if !baseline { self.onSignals?(signals) }
             }
         }
     }
 
-    private func check() -> [(String, Session)] {
+    private func check(_ known: [String: Change]) -> ([String: Change], [Signal])? {
         if me == nil { me = (glab("user") as? [String: Any])?["username"] as? String }
+        guard let me else { return nil }
         let since = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-14 * 86400))
-        guard let list = glab("merge_requests?scope=created_by_me&state=opened&per_page=50&updated_after=\(since)") as? [[String: Any]]
-        else { return [] }
+        let recent = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-3 * 86400))
+        guard let mine = glab("merge_requests?scope=created_by_me&state=opened&per_page=50&updated_after=\(since)") as? [[String: Any]],
+              let review = glab("merge_requests?scope=all&reviewer_username=\(me)&state=opened&per_page=50") as? [[String: Any]]
+        else { return nil }
+        let merged = glab("merge_requests?scope=created_by_me&state=merged&per_page=30&updated_after=\(recent)") as? [[String: Any]] ?? []
 
-        var now: [String: MR] = [:]
-        for m in list {
-            guard let pid = m["project_id"] as? Int, let iid = m["iid"] as? Int else { continue }
-            let url = m["web_url"] as? String ?? ""
-            let repo = url.components(separatedBy: "/-/").first?.split(separator: "/").last.map(String.init) ?? "MR"
-            let detail = glab("projects/\(pid)/merge_requests/\(iid)") as? [String: Any]
-            let pipeline = (detail?["head_pipeline"] as? [String: Any])?["status"] as? String ?? ""
-            now["\(pid)!\(iid)"] = MR(pid: pid, iid: iid, title: m["title"] as? String ?? "", url: url,
-                                      project: "\(repo) !\(iid)", pipeline: pipeline, notes: m["user_notes_count"] as? Int ?? 0)
+        var out: [String: Change] = [:]
+        var signals: [Signal] = []
+        var listed: [(m: [String: Any], mine: Bool, reviewer: Bool)] = mine.map { ($0, true, false) }
+        for m in review {
+            if let i = listed.firstIndex(where: { $0.m["id"] as? Int == m["id"] as? Int }) { listed[i].reviewer = true }
+            else { listed.append((m, false, true)) }
         }
-        defer { known = now }
-        guard let known else { return [] }
+        for (m, isMine, isReviewer) in listed {
+            guard var c = change(m) else { continue }
+            let old = known[c.key]
+            c.mine = isMine
+            c.reviewer = isReviewer
+            c.lastForeign = old?.lastForeign
+            let detail = glab("\(c.api)/merge_requests/\(c.number)") as? [String: Any]
+            c.pipeline = (detail?["head_pipeline"] as? [String: Any])?["status"] as? String ?? ""
+            if c.pipeline == "created" || c.pipeline == "waiting_for_resource" || c.pipeline == "preparing" { c.pipeline = "pending" }
+            c.conflict = m["has_conflicts"] as? Bool ?? false
+            c.open = m["detailed_merge_status"] as? String == "discussions_not_resolved" ? max(1, old?.open ?? 1) : 0
+            if let reviewers = glab("\(c.api)/merge_requests/\(c.number)/reviewers") as? [[String: Any]] {
+                let states = reviewers.filter { ($0["user"] as? [String: Any])?["username"] as? String != me }.compactMap { $0["state"] as? String }
+                c.review = states.contains("requested_changes") ? "changes" : states.contains("approved") ? "approved" : ""
+            }
+            out[c.key] = c
+            guard let old else {
+                if isReviewer { signals.append(Signal(kind: .reviewRequested, change: c, who: [authorName(m)])) }
+                continue
+            }
+            if isReviewer && !old.reviewer { signals.append(Signal(kind: .reviewRequested, change: c, who: [authorName(m)])) }
+            guard isMine else { continue }
+            if c.pipeline == "failed" && old.pipeline != "failed" { signals.append(Signal(kind: .failed, change: c)) }
+            if c.pipeline == "success" && old.pipeline == "failed" { signals.append(Signal(kind: .fixed, change: c)) }
+            if c.conflict && !old.conflict { signals.append(Signal(kind: .conflict, change: c)) }
+            if c.review == "changes" && old.review != "changes" { signals.append(Signal(kind: .changes, change: c)) }
+            if c.review == "approved" && old.review == "" { signals.append(Signal(kind: .approved, change: c)) }
+            if c.notes > old.notes, let s = comments(c, since: old.seen, me: me) {
+                c.lastForeign = Date()
+                out[c.key] = c
+                signals.append(s)
+            }
+        }
 
-        func alert(_ mr: MR, _ mood: Mood, _ icon: String, _ text: String) -> Session {
-            Session(id: "mr-\(mr.pid)-\(mr.iid)", mood: mood, project: mr.project, agent: "GitLab", text: text,
-                    icon: icon, click: ["-execute", "open \(shellQuote(mr.url))"], isAgent: false)
+        for m in merged {
+            guard var c = change(m) else { continue }
+            let old = known[c.key]
+            c.mine = true
+            c.state = "merged"
+            c.mergedAt = parseDate(m["merged_at"])
+            c.mergeSha = (m["squash_commit_sha"] as? String) ?? (m["merge_commit_sha"] as? String) ?? (m["sha"] as? String) ?? ""
+            c.lost = old?.lost ?? ""
+            c.lostChecked = old?.lostChecked
+            if old?.isOpen == true { signals.append(Signal(kind: .merged, change: c)) }
+            if let s = verify(&c) { signals.append(s) }
+            out[c.key] = c
         }
+        // Verschwunden, aber nicht unter den gemergten: geschlossen.
+        for (key, old) in known where old.isOpen && out[key] == nil {
+            var c = old
+            c.state = (glab("\(old.api)/merge_requests/\(old.number)") as? [String: Any])?["state"] as? String ?? "closed"
+            if c.state == "merged" { signals.append(Signal(kind: .merged, change: c)) }
+            out[key] = c
+        }
+        // Gemergte, die aus der Liste gefallen sind, bis 3 Tage nach dem Merge weiter kontrollieren.
+        for (key, old) in known where out[key] == nil && old.state == "merged" {
+            var c = old
+            if let s = verify(&c) { signals.append(s) }
+            if (c.mergedAt ?? .distantPast) > Date().addingTimeInterval(-7 * 86400) { out[key] = c }
+        }
+        let stale = Set(known.keys).subtracting(out.keys)
+        for key in stale { DispatchQueue.main.async { State.shared.data.changes[key] = nil } }
+        return (out, signals)
+    }
 
-        var alerts: [(String, Session)] = []
-        for (key, mr) in now {
-            guard let old = known[key] else { continue }
-            if mr.pipeline == "failed" && old.pipeline != "failed" {
-                alerts.append(("failed", alert(mr, .waiting, "🔴", "Pipeline rot: \(mr.title)")))
-            } else if mr.pipeline == "success" && old.pipeline == "failed" {
-                alerts.append(("fixed", alert(mr, .done, "🟢", "Wieder grün: \(mr.title)")))
-            }
-            if mr.notes > old.notes,
-               let notes = glab("projects/\(mr.pid)/merge_requests/\(mr.iid)/notes?sort=desc&order_by=created_at&per_page=10") as? [[String: Any]],
-               let note = notes.first(where: { $0["system"] as? Bool != true }),
-               let author = note["author"] as? [String: Any], author["username"] as? String != me {
-                let body = (note["body"] as? String ?? "").replacingOccurrences(of: "\n", with: " ")
-                let name = author["name"] as? String ?? "Jemand"
-                alerts.append(("comment", alert(mr, .waiting, "💬", "\(name): \(body.count > 120 ? body.prefix(119) + "…" : body)")))
-            }
+    private func change(_ m: [String: Any]) -> Change? {
+        guard let pid = m["project_id"] as? Int, let iid = m["iid"] as? Int else { return nil }
+        let url = m["web_url"] as? String ?? ""
+        let repo = url.components(separatedBy: "/-/").first?.split(separator: "/").last.map(String.init) ?? "MR"
+        var c = Change(key: "gl:\(pid)!\(iid)", host: "gitlab", api: "projects/\(pid)", repo: repo, number: iid,
+                       title: m["title"] as? String ?? "", url: url, branch: m["source_branch"] as? String ?? "",
+                       target: m["target_branch"] as? String ?? "")
+        c.author = (m["author"] as? [String: Any])?["username"] as? String ?? ""
+        c.who = authorName(m)
+        c.draft = m["draft"] as? Bool ?? false
+        c.notes = m["user_notes_count"] as? Int ?? 0
+        c.state = m["state"] as? String ?? "opened"
+        return c
+    }
+
+    private func authorName(_ m: [String: Any]) -> String {
+        firstName((m["author"] as? [String: Any])?["name"] as? String ?? "Jemand")
+    }
+
+    /// Neue Kommentare von anderen seit `since`, gebündelt.
+    private func comments(_ c: Change, since: Date, me: String) -> Signal? {
+        guard let notes = glab("\(c.api)/merge_requests/\(c.number)/notes?sort=desc&order_by=created_at&per_page=30") as? [[String: Any]]
+        else { return nil }
+        let fresh = notes.filter { n in
+            n["system"] as? Bool != true && ((n["author"] as? [String: Any])?["username"] as? String) != me
+                && (parseDate(n["created_at"]) ?? .distantPast) > since
         }
-        for (key, mr) in known where now[key] == nil {
-            if (glab("projects/\(mr.pid)/merge_requests/\(mr.iid)") as? [String: Any])?["state"] as? String == "merged" {
-                alerts.append(("merged", alert(mr, .done, "🎉", "Gemergt: \(mr.title)")))
-            }
+        guard !fresh.isEmpty else { return nil }
+        let who = fresh.compactMap { ($0["author"] as? [String: Any])?["name"] as? String }.map(firstName)
+        let body = (fresh.last?["body"] as? String ?? "").replacingOccurrences(of: "\n", with: " ")
+        return Signal(kind: .comment, change: c, who: who, count: fresh.count, excerpt: body)
+    }
+
+    /// Ist die gemergte Änderung noch im Zielbranch? Erst über die Abstammung, sonst über den Inhalt
+    /// (Squash, Rebase, Wiederherstellung).
+    private func verify(_ c: inout Change) -> Signal? {
+        guard !c.mergeSha.isEmpty, c.lost != "lost", (c.mergedAt ?? .distantPast) > Date().addingTimeInterval(-3 * 86400),
+              Date().timeIntervalSince(c.lostChecked ?? .distantPast) > 30 * 60 else { return nil }
+        let target = c.target.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? c.target
+        guard let base = glab("\(c.api)/repository/merge_base?refs[]=\(c.mergeSha)&refs[]=\(target)") as? [String: Any] else { return nil }
+        c.lostChecked = Date()
+        if base["id"] as? String == c.mergeSha { c.lost = "ok"; return nil }
+        guard let diffs = glab("\(c.api)/merge_requests/\(c.number)/diffs?per_page=50") as? [[String: Any]] else { return nil }
+        let files = diffs.prefix(15).map { d in
+            (path: d["new_path"] as? String ?? "", added: addedLines(d["diff"] as? String ?? ""), deleted: d["deleted_file"] as? Bool ?? false)
         }
-        return alerts
+        let present = contentPresent(files) { path in
+            let p = path.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? path
+            return cli("/opt/homebrew/bin/glab", ["api", "\(c.api)/repository/files/\(p)/raw?ref=\(target)"]).flatMap { String(data: $0, encoding: .utf8) }
+        }
+        c.lost = present ? "ok" : "lost"
+        return present ? nil : Signal(kind: .lost, change: c)
     }
 }
+
+func firstName(_ name: String) -> String { name.split(separator: " ").first.map(String.init) ?? name }

@@ -47,32 +47,36 @@ final class Headliner {
         return r.ok && !text.isEmpty && text.count <= 48 && !text.contains("\n") ? text : nil
     }
 
-    /// Letzte Prompts von Martin und die letzte Antwort aus dem Transkript-Ende.
     private func transcriptContext(_ path: String) -> String? {
-        guard let h = FileHandle(forReadingAtPath: path) else { return nil }
-        defer { try? h.close() }
-        let end = (try? h.seekToEnd()) ?? 0
-        try? h.seek(toOffset: end > 1_500_000 ? end - 1_500_000 : 0)
-        let data = h.readDataToEndOfFile()
-        var prompts: [String] = []
-        var answer = ""
-        for line in data.split(separator: 0x0A) {
-            guard let e = (try? JSONSerialization.jsonObject(with: Data(line))) as? [String: Any],
-                  let type = e["type"] as? String, type == "user" || type == "assistant",
-                  e["isMeta"] as? Bool != true,
-                  let msg = e["message"] as? [String: Any] else { continue }
-            var text = ""
-            if let c = msg["content"] as? String {
-                text = c
-            } else if let blocks = msg["content"] as? [[String: Any]] {
-                text = blocks.filter { $0["type"] as? String == "text" }.compactMap { $0["text"] as? String }.joined(separator: " ")
-            }
-            text = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if text.isEmpty || text.hasPrefix("<") { continue }
-            if type == "user" { prompts.append(String(text.prefix(500))) } else { answer = String(text.prefix(1200)) }
-        }
-        guard !prompts.isEmpty || !answer.isEmpty else { return nil }
+        guard let (prompts, answer) = transcriptTail(path) else { return nil }
         let asks = prompts.suffix(3).map { "- \($0)" }.joined(separator: "\n")
         return "Martins letzte Nachrichten:\n\(asks)\n\nLetzte Antwort von Claude:\n\(answer)"
     }
+}
+
+/// Martins Prompts und die letzte Antwort von Claude aus dem Transkript-Ende.
+func transcriptTail(_ path: String) -> (prompts: [String], answer: String)? {
+    guard let h = FileHandle(forReadingAtPath: path) else { return nil }
+    defer { try? h.close() }
+    let end = (try? h.seekToEnd()) ?? 0
+    try? h.seek(toOffset: end > 1_500_000 ? end - 1_500_000 : 0)
+    let data = h.readDataToEndOfFile()
+    var prompts: [String] = []
+    var answer = ""
+    for line in data.split(separator: 0x0A) {
+        guard let e = (try? JSONSerialization.jsonObject(with: Data(line))) as? [String: Any],
+              let type = e["type"] as? String, type == "user" || type == "assistant",
+              e["isMeta"] as? Bool != true,
+              let msg = e["message"] as? [String: Any] else { continue }
+        var text = ""
+        if let c = msg["content"] as? String {
+            text = c
+        } else if let blocks = msg["content"] as? [[String: Any]] {
+            text = blocks.filter { $0["type"] as? String == "text" }.compactMap { $0["text"] as? String }.joined(separator: " ")
+        }
+        text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.isEmpty || text.hasPrefix("<") { continue }
+        if type == "user" { prompts.append(String(text.prefix(500))) } else { answer = String(text.prefix(1200)) }
+    }
+    return prompts.isEmpty && answer.isEmpty ? nil : (prompts, answer)
 }

@@ -5,9 +5,9 @@ let buddyDir = homeURL.appendingPathComponent(".claude/tamagotchi")
 let eventsURL = buddyDir.appendingPathComponent("events.jsonl")
 let memoryDir = homeURL.appendingPathComponent(".claude/projects/-Users-martinbende-Development/memory")
 
-enum Mood { case idle, sleeping, working, done, waiting }
+enum Mood: String, Codable { case idle, sleeping, working, done, waiting }
 
-struct Session {
+struct Session: Codable {
     var id: String
     var mood: Mood
     var project = ""
@@ -20,6 +20,10 @@ struct Session {
     /// Kurze Überschrift von Haiku (siehe Headliner), sonst title.
     var headline = ""
     var transcript = ""
+    /// Startordner der Session (CLAUDE_PROJECT_DIR), für `claude --resume`.
+    var root = ""
+    /// Letztes Hook-Event; nach "pretool" läuft gerade ein Werkzeug, das lange dauern darf.
+    var lastEvent = ""
     /// Ersetzt ✋/✅ in der Sprechblase (MRs, Aufträge).
     var icon = ""
     var click: [String] = []
@@ -54,6 +58,8 @@ final class Store {
     private var offset: UInt64 = 0
 
     init() {
+        for s in State.shared.data.sessions { sessions[s.id] = s }
+        headlines = State.shared.data.headlines
         let fm = FileManager.default
         try? fm.createDirectory(at: buddyDir, withIntermediateDirectories: true)
         if let size = (try? fm.attributesOfItem(atPath: eventsURL.path))?[.size] as? UInt64, size > 512_000 {
@@ -101,6 +107,7 @@ final class Store {
         sessions[s.id] = s
         lastActivity = Date()
         onChange?()
+        persist()
     }
 
     func ack(_ id: String) {
@@ -113,11 +120,13 @@ final class Store {
             sessions[id] = nil
         }
         onChange?()
+        persist()
     }
 
     func ackAll() {
         for (id, s) in sessions where s.mood == .done || s.mood == .waiting { sessions[id] = nil }
         onChange?()
+        persist()
     }
 
     private func poll() {
@@ -140,8 +149,18 @@ final class Store {
                 }
             }
         }
-        if changed { onChange?() }
+        if changed {
+            onChange?()
+            persist()
+        }
         exportLabels()
+    }
+
+    /// Sessions und Überschriften überleben einen Neustart (z. B. nach build.sh).
+    func persist() {
+        State.shared.data.sessions = Array(sessions.values)
+        State.shared.data.headlines = headlines
+        State.shared.touch()
     }
 
     private var exported = ""
@@ -154,7 +173,7 @@ final class Store {
         guard let data = try? JSONSerialization.data(withJSONObject: out, options: [.sortedKeys]),
               let text = String(data: data, encoding: .utf8), text != exported else { return }
         exported = text
-        try? data.write(to: buddyDir.appendingPathComponent("labels.json"), options: .atomic)
+        try? data.write(to: homeURL.appendingPathComponent(".claude/agent-feedback/labels.json"), options: .atomic)
     }
 
     private func apply(_ e: [String: Any]) {
@@ -168,11 +187,13 @@ final class Store {
         if let v = e["detail"] as? String, !v.isEmpty { s.detail = v }
         if let v = e["title"] as? String, !v.isEmpty { s.title = v }
         if let v = e["transcript"] as? String, !v.isEmpty { s.transcript = v }
+        if let v = e["root"] as? String, !v.isEmpty { s.root = v }
         if let v = headlines[id] { s.headline = v }
         if let v = e["click"] as? [String], !v.isEmpty { s.click = v }
         if let v = labels[id] { s.project = v }
         s.updated = Date()
         s.stopAt = nil
+        s.lastEvent = e["event"] as? String ?? ""
         switch e["event"] as? String {
         case "working", "pretool": s.mood = .working
         case "stop": s.stopAt = Date()
@@ -206,7 +227,12 @@ final class Store {
         sessions = sessions.filter { _, s in
             let age = now.timeIntervalSince(s.updated)
             switch s.mood {
-            case .working: return age < 30 * 60
+            case .working:
+                // Lange Werkzeugläufe (Tests, Builds) melden sich erst danach; das Transkript zeigt Leben.
+                if s.lastEvent == "pretool" { return age < 3 * 3600 }
+                if age < 30 * 60 { return true }
+                let touched = (try? FileManager.default.attributesOfItem(atPath: s.transcript))?[.modificationDate] as? Date
+                return Date().timeIntervalSince(touched ?? .distantPast) < 30 * 60 && age < 8 * 3600
             case .done: return age < 3 * 3600
             default: return age < 8 * 3600
             }
@@ -255,6 +281,7 @@ final class Vitals {
 }
 
 /// Führt die Klickargumente aus wie terminal-notifier: -activate per Bundle-ID, -execute über /bin/sh -c.
+/// "-task" (vorbereiteter Auftrag) behandelt PetView selbst.
 func performClick(_ args: [String]) {
     guard args.count == 2 else { return }
     switch args[0] {

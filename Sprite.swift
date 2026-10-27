@@ -8,6 +8,22 @@ enum Palette {
     static let blush = NSColor(srgbRed: 0.98, green: 0.55, blue: 0.6, alpha: 1)
     static let alert = NSColor(srgbRed: 1.0, green: 0.78, blue: 0.2, alpha: 1)
     static let heart = NSColor(srgbRed: 0.95, green: 0.3, blue: 0.4, alpha: 1)
+    static let check = NSColor(srgbRed: 0.3, green: 0.72, blue: 0.4, alpha: 1)
+    static let paper = NSColor(srgbRed: 0.98, green: 0.96, blue: 0.9, alpha: 1)
+    static let confetti = [heart, alert, check, NSColor(srgbRed: 0.35, green: 0.6, blue: 0.95, alpha: 1)]
+}
+
+/// Was das Haustier gerade in der Hand hat oder tut, abgeleitet aus dem echten Arbeitsstand.
+enum Prop {
+    case none
+    /// Brief: Rückfrage an Martin.
+    case letter
+    /// Sanduhr: Pipeline läuft.
+    case hourglass
+    /// Augen: Änderung wartet auf Sichtprüfung.
+    case eyes
+    /// Konfetti und Partyhut: Aufgabe wirklich erledigt (abgenommen, gemergt).
+    case party
 }
 
 let spriteCols = 14
@@ -25,6 +41,7 @@ struct PetPose {
     var yawning = false
     var hungry = false
     var grumpy = false
+    var prop = Prop.none
 
     var lift: Int {
         if hop > 0 { return [1, 3, 5, 6, 5, 3][hop % 6] }
@@ -63,7 +80,9 @@ func drawPet(_ pose: PetPose, at origin: NSPoint, px: CGFloat) {
 
     let armsUp: Bool
     switch mood {
-    case .done: armsUp = true
+    case _ where pose.prop == .party: armsUp = (tick / 4) % 2 == 0
+    case _ where pose.prop == .letter: armsUp = false
+    case .done: armsUp = false
     case .waiting: armsUp = (t / 3) % 2 == 0
     default: armsUp = pose.petted > 0 || pose.hop > 0
     }
@@ -75,7 +94,7 @@ func drawPet(_ pose: PetPose, at origin: NSPoint, px: CGFloat) {
 
     let ink = Palette.ink
     let blink = mood != .sleeping && (tick % 47 == 0 || tick % 47 == 1)
-    let happy = mood == .done || pose.petted > 0
+    let happy = mood == .done || pose.petted > 0 || pose.prop == .party
     if pose.yawning {
         rect(3...4, 3...3, ink); rect(9...10, 3...3, ink)
         rect(6...7, 4...6, ink)
@@ -99,7 +118,8 @@ func drawPet(_ pose: PetPose, at origin: NSPoint, px: CGFloat) {
     case .waiting:
         if (t / 4) % 2 == 0 { rect(13...13, -5 ... -3, Palette.alert); p(13, -1, Palette.alert) }
     case .done:
-        drawHeart(at: NSPoint(x: o.x + 12 * px, y: o.y + CGFloat(-2 - (t % 10) / 3) * px), px: px)
+        // Nur ein Haken: die Antwort ist da, die Aufgabe ist damit noch nicht erledigt (das wäre .party).
+        for (x, y) in [(11, -2), (12, -1), (13, -2), (14, -3), (15, -4)] { p(x, y, Palette.check) }
     case .working:
         for i in 0..<3 where (t / 3) % 4 > i { p(5 + i * 2, -2, ink.withAlphaComponent(0.6)) }
     case .sleeping:
@@ -113,8 +133,38 @@ func drawPet(_ pose: PetPose, at origin: NSPoint, px: CGFloat) {
             drawGlyph("🍔", at: NSPoint(x: o.x + 12 * px, y: o.y - 5 * px), size: px * 2.6, color: .black)
         }
     }
+    drawProp(pose, p: p, rect: rect, o: o, px: px)
     if pose.petted > 0 {
         drawHeart(at: NSPoint(x: o.x + 1 * px, y: o.y - CGFloat(3 + (20 - pose.petted) / 4) * px), px: px)
+    }
+}
+
+private func drawProp(_ pose: PetPose, p: (Int, Int, NSColor) -> Void, rect: (ClosedRange<Int>, ClosedRange<Int>, NSColor) -> Void,
+                      o: NSPoint, px: CGFloat) {
+    let ink = Palette.ink, tick = pose.tick
+    switch pose.prop {
+    case .none:
+        break
+    case .letter:
+        let bob = (tick / 6) % 2
+        rect(12...16, (4 + bob)...(7 + bob), Palette.paper)
+        p(12, 4 + bob, ink); p(13, 5 + bob, ink); p(14, 6 + bob, ink); p(15, 5 + bob, ink); p(16, 4 + bob, ink)
+        p(14, 5 + bob, Palette.heart)
+    case .hourglass:
+        let flipped = (tick / 25) % 2 == 1
+        rect(12...16, -5 ... -5, ink); rect(12...16, 1...1, ink)
+        rect(13...15, -4 ... -3, flipped ? Palette.paper : Palette.alert)
+        p(14, -2, Palette.alert)
+        rect(13...15, -1...0, flipped ? Palette.alert : Palette.paper)
+    case .eyes:
+        drawGlyph("👀", at: NSPoint(x: o.x + 11 * px, y: o.y - 5 * px), size: px * 2.8, color: .black)
+    case .party:
+        rect(6...7, -3 ... -1, Palette.alert); p(6, -4, Palette.heart); p(7, -4, Palette.heart); rect(5...8, -1 ... -1, Palette.confetti[3])
+        for i in 0..<8 {
+            let x = (i * 5 + tick / 2) % 18 - 2
+            let y = (i * 7 + tick) % 14 - 6
+            p(x, y, Palette.confetti[i % Palette.confetti.count])
+        }
     }
 }
 

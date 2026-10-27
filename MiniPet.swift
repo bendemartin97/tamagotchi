@@ -4,6 +4,11 @@ import AppKit
 final class MiniPetView: NSView {
     let store: Store
     let sessionID: String
+    /// Kurzname der Aufgabe für das Namensschild.
+    var label: ((Session) -> String)?
+    var prop: ((Session) -> Prop)?
+    /// Kontextmenü mit Ticket, Workspace, Session, Änderungen und Feedback-Aktionen.
+    var contextMenu: ((Session) -> NSMenu?)?
     var tick = 0
     var moodSince = 0
     var lastMood: Mood = .working
@@ -31,11 +36,12 @@ final class MiniPetView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         guard let s = store.sessions[sessionID] else { return }
         if s.mood != lastMood { lastMood = s.mood; moodSince = tick }
-        let pose = PetPose(mood: s.mood, t: tick - moodSince, tick: tick, walking: walking, facing: facing)
+        let pose = PetPose(mood: s.mood, t: tick - moodSince, tick: tick, walking: walking, facing: facing, prop: prop?(s) ?? .none)
         drawShadow(centerX: bounds.midX, y: bounds.height - 7, width: CGFloat(spriteCols) * px, lift: pose.lift)
         drawPet(pose, at: petOrigin, px: px)
 
-        let label = s.label.count > 16 ? s.label.prefix(15) + "…" : s.label
+        let topic = label?(s) ?? s.label
+        let label = topic.count > 18 ? topic.prefix(17) + "…" : topic
         let name = NSMutableAttributedString(string: store.name(for: s.id), attributes: [
             .font: NSFont.systemFont(ofSize: 9, weight: .bold),
             .foregroundColor: NSColor.white,
@@ -87,11 +93,19 @@ final class MiniPetView: NSView {
         performClick(s.click)
         if s.mood != .working { store.ack(s.id) }
     }
+
+    override func rightMouseDown(with event: NSEvent) {
+        guard let s = store.sessions[sessionID], let m = contextMenu?(s) else { return }
+        NSMenu.popUpContextMenu(m, with: event, for: self)
+    }
 }
 
 /// Hält für jede Agent-Session ein Mini-Fenster und lässt sie im Gänsemarsch hinter dem großen laufen.
 final class Followers {
     let store: Store
+    var label: ((Session) -> String)?
+    var prop: ((Session) -> Prop)?
+    var contextMenu: ((Session) -> NSMenu?)?
     private var panels: [String: (NSPanel, MiniPetView)] = [:]
     let size = NSSize(width: 120, height: 84)
 
@@ -147,6 +161,9 @@ final class Followers {
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
         panel.hidesOnDeactivate = false
         let view = MiniPetView(store: store, sessionID: id, frame: NSRect(origin: .zero, size: size))
+        view.label = { [weak self] in self?.label?($0) ?? $0.label }
+        view.prop = { [weak self] in self?.prop?($0) ?? .none }
+        view.contextMenu = { [weak self] in self?.contextMenu?($0) }
         panel.contentView = view
         panel.orderFrontRegardless()
         panels[id] = (panel, view)

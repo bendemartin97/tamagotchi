@@ -1,6 +1,7 @@
 // Desktop-Tamagotchi für Claude Code / Codex.
 // Liest ~/.claude/tamagotchi/events.jsonl (geschrieben von ~/.claude/hooks/pet.sh und notify.sh),
-// beobachtet Martins GitLab-MRs, chattet über `claude -p` und gibt Aufträge an Claude Code weiter.
+// beobachtet Martins MRs/PRs auf GitLab und GitHub, verknüpft sie mit ClickUp-Tickets und Workspaces, sagt,
+// was gerade Martins Aufmerksamkeit braucht, chattet über `claude -p` und gibt Aufträge an Claude Code weiter.
 // Klick: öffnet die dringendste Meldung, sonst den Chat (auch ⌃⌥Leertaste). Ziehen: verschieben.
 // Rechtsklick: Menü. Jede Agent-Session bekommt ein Mini-Haustier, das hinterherläuft.
 
@@ -36,7 +37,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     lazy var tasks = TaskRunner(store: store)
     lazy var followers = Followers(store: store)
     lazy var headliner = Headliner(store: store)
+    lazy var works = Works(store: store)
+    let feedback = FeedbackWatch()
+    lazy var brain = Brain(store: store, works: works, feedback: feedback)
+    lazy var notifier = Notifier(store: store, works: works)
+    lazy var returns = Returns(store: store, brain: brain)
     var gitlab: GitLabWatch!
+    var github: GitHubWatch!
+    var clickup: ClickUpWatch!
+    /// Sessions, deren Mini gerade feiert (Abnahme, Merge).
+    var parties: [String: Date] = [:]
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Nur eine Instanz: macOS startet die App z. B. nach der Bildschirmaufnahme-Freigabe selbst neu,
@@ -63,20 +73,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.contentView = view
         panel.orderFrontRegardless()
 
-        gitlab = GitLabWatch(store: store)
-        view.gitlab = gitlab
-        gitlab.onEvent = { [weak self] kind in
-            guard let self else { return }
-            switch kind {
-            case "merged": self.vitals.joy += 2; self.view.hop = 6
-            case "failed": self.vitals.joy -= 1
-            case "fixed": self.vitals.joy += 0.5
-            default: break
-            }
+        view.brain = brain
+        brain.refresh()
+        gitlab = GitLabWatch()
+        github = GitHubWatch()
+        clickup = ClickUpWatch(store: store, works: works)
+        gitlab.onSignals = { [weak self] in self?.notifier.post($0) }
+        github.onSignals = { [weak self] in self?.notifier.post($0) }
+        notifier.onKind = { [weak self] kind in self?.react(kind) }
+        clickup.onUpdate = { [weak self] before in self?.ticketsChanged(before) }
+        feedback.onChange = { [weak self] item, before in self?.feedbackChanged(item, before) }
+        returns.onSummary = { [weak self] topic, text in
+            guard let self, self.view.chatField == nil else { return }
+            self.view.showReply(text, title: "↩︎ \(topic)", seconds: 25)
         }
-        store.onWorking = { [weak self] s in self?.headliner.refresh(s, done: false) }
+
+        followers.label = { [weak self] s in self?.brain.topic(s) ?? s.label }
+        followers.prop = { [weak self] s in self?.prop(for: s) ?? .none }
+        followers.contextMenu = { [weak self] s in self?.view.sessionMenu(s) }
+
+        store.onWorking = { [weak self] s in
+            self?.headliner.refresh(s, done: false)
+            self?.returns.seen(s.project)
+        }
         store.onDone = { [weak self] s in
             self?.headliner.refresh(s, done: true)
+            self?.returns.record(s)
             self?.vitals.food += 1
             self?.vitals.joy += 0.3
         }
@@ -89,6 +111,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.followers.update(leader: self.panel, leaderView: self.view)
         }
         Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in self?.everyMinute() }
+    }
+
+    private func react(_ kind: Signal.Kind) {
+        switch kind {
+        case .merged: vitals.joy += 2; view.celebrate()
+        case .failed: vitals.joy -= 1
+        case .fixed: vitals.joy += 0.5
+        case .approved: vitals.joy += 0.5
+        case .lost: vitals.joy -= 1
+        default: break
+        }
+    }
+
+    /// Requisite eines Minis aus dem echten Stand: Brief bei Rückfrage, Augen bei Sichtprüfung, Sanduhr bei
+    /// laufender Pipeline, Party nach Abnahme oder Merge.
+    private func prop(for s: Session) -> Prop {
+        if let until = parties[s.id], Date() < until { return .party }
+        let items = feedback.items(forSession: s.id)
+        if s.mood == .waiting || items.contains(where: { $0.status == .question }) { return .letter }
+        if items.contains(where: { $0.status == .implemented || $0.status == .nothingToDo }) { return .eyes }
+        if let w = brain.work(forSession: s), w.changes.contains(where: { $0.isOpen && ($0.pipeline == "running" || $0.pipeline == "pending") }) {
+            return .hourglass
+        }
+        return .none
+    }
+
+    private func feedbackChanged(_ item: FeedbackItem, _ before: FeedbackItem.Status?) {
+        let who = store.sessions[item.sessionID].map { store.name(for: $0.id) }
+        switch item.status {
+        case .accepted:
+            if !item.sessionID.isEmpty { parties[item.sessionID] = Date().addingTimeInterval(120) }
+            view.celebrate()
+        case .question:
+            store.post(Session(id: "fb-\(item.md.lastPathComponent)", mood: .waiting, project: works.topic(forProject: item.project),
+                               agent: "Feedback", text: "\(who ?? "Der Agent") fragt zu „\(item.headline)“: \(item.question)",
+                               icon: "❓", click: ["-execute", "open -b com.microsoft.VSCode \(shellQuote(item.md.path))"], isAgent: false))
+        case .implemented, .nothingToDo:
+            let what = item.status == .implemented ? "ist umgesetzt" : "braucht laut Agent keine Änderung"
+            store.post(Session(id: "fb-\(item.md.lastPathComponent)", mood: .done, project: works.topic(forProject: item.project),
+                               agent: "Feedback", text: "„\(item.headline)“ \(what). Schau's dir an: Rechtsklick auf \(who ?? "das Mini") → Passt oder Nachbessern.",
+                               icon: "👀", click: ["-execute", "open -b com.microsoft.VSCode \(shellQuote(item.md.path))"], isAgent: false))
+        default:
+            break
+        }
+    }
+
+    /// Ticket ist in ClickUp erledigt worden: feiern.
+    private func ticketsChanged(_ before: [String: Ticket]) {
+        for (id, t) in State.shared.data.tickets where t.finished {
+            guard let old = before[id], !old.status.isEmpty, !old.finished else { continue }
+            view.celebrate()
+            for s in store.agents where works.key(forProject: s.project) == id { parties[s.id] = Date().addingTimeInterval(120) }
+            store.post(Session(id: "ticket-\(id)", mood: .done, project: t.short.isEmpty ? shorten(t.name) : t.short, agent: "ClickUp",
+                               text: "Das Ticket steht jetzt auf \(t.status).", icon: "🎉",
+                               click: ["-execute", "open \(shellQuote(t.url))"], isAgent: false))
+        }
+        brain.refresh()
     }
 
     /// Hunger, Feierabend-Spruch und Erinnerungen um 9:30, 13:30 und 16:30 an Werktagen (nur wenn

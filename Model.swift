@@ -141,6 +141,20 @@ final class Store {
             }
         }
         if changed { onChange?() }
+        exportLabels()
+    }
+
+    private var exported = ""
+
+    /// Spitznamen und Überschriften der Agent-Sessions für agent-feedback, damit die Session-Auswahl dort
+    /// dieselben Namen zeigt wie die Minis. Schreibt nur bei Änderungen.
+    private func exportLabels() {
+        var out: [String: [String: String]] = [:]
+        for s in agents { out[s.id] = ["name": name(for: s.id), "headline": s.heading] }
+        guard let data = try? JSONSerialization.data(withJSONObject: out, options: [.sortedKeys]),
+              let text = String(data: data, encoding: .utf8), text != exported else { return }
+        exported = text
+        try? data.write(to: buddyDir.appendingPathComponent("labels.json"), options: .atomic)
     }
 
     private func apply(_ e: [String: Any]) {

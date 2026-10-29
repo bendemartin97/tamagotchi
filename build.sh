@@ -7,8 +7,9 @@ APP="$HOME/Applications/Tamagotchi.app"
 LABEL="com.martinbende.tamagotchi"
 AGENT="$HOME/Library/LaunchAgents/$LABEL.plist"
 
-mkdir -p "$APP/Contents/MacOS" "$HOME/.claude/tamagotchi"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$HOME/.claude/tamagotchi"
 swiftc -O -swift-version 5 "$D"/*.swift -o "$APP/Contents/MacOS/Tamagotchi"
+cp "$D/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -16,6 +17,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleIdentifier</key><string>$LABEL</string>
   <key>CFBundleName</key><string>Tamagotchi</string>
   <key>CFBundleExecutable</key><string>Tamagotchi</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>LSUIElement</key><true/>
 </dict></plist>

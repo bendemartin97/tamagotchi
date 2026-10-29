@@ -1,4 +1,8 @@
-# Tamagotchi
+<p align="center">
+  <img src="icon.png" alt="Tamagotchi icon" width="160">
+</p>
+
+<h1 align="center">Tamagotchi</h1>
 
 A macOS desktop pet that watches over your Claude Code and Codex sessions. Every agent session gets its own mini pet
 with a fixed look. The big pet shows new notifications as a speech bubble for two minutes; after that they wait in

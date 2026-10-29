@@ -57,8 +57,12 @@ final class Hub: ObservableObject {
     func show(_ tab: Tab? = nil) {
         if window == nil {
             let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1060, height: 780),
-                             styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
+                             styleMask: [.titled, .closable, .resizable, .miniaturizable, .fullSizeContentView],
+                             backing: .buffered, defer: false)
             w.title = "Tamagotchi"
+            w.titlebarAppearsTransparent = true
+            w.titleVisibility = .hidden
+            w.isMovableByWindowBackground = true
             w.isReleasedWhenClosed = false
             w.level = .floating
             w.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
@@ -248,9 +252,8 @@ struct MessageRow: View {
             }
             if open { detail(m, why: rank.why) }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .background(hub.selected == m.id ? Color.accentColor.opacity(0.12) : .clear)
+        .card(hub.selected == m.id ? .accentColor : !m.read && m.question ? .orange : nil, padding: 12)
+        .opacity(m.read && hub.selected != m.id ? 0.85 : 1)
         .contentShape(Rectangle())
         .onTapGesture { hub.toggle(m.id); onTap() }
     }
@@ -365,9 +368,12 @@ struct HubView: View {
         let _ = hub.tick
         HStack(spacing: 0) {
             AgentSidebar(hub: hub)
+                .background(VisualEffect(material: .sidebar))
             Divider()
             main
+                .background(Color(nsColor: .windowBackgroundColor))
         }
+        .ignoresSafeArea()
         .frame(minWidth: 780, minHeight: 480)
         .onAppear { listFocus = true }
     }
@@ -397,33 +403,38 @@ struct HubView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Picker("", selection: $hub.tab) {
-                Text("Live (\(hub.store.agents.count))").tag(Hub.Tab.live)
-                Text("Inbox (\(hub.inbox.unreadCount))").tag(Hub.Tab.inbox)
-                Text("Aufgaben (\(hub.brain.list.count))").tag(Hub.Tab.works)
-                Text("MRs (\(hub.changes.count))").tag(Hub.Tab.changes)
-                Text("Bericht").tag(Hub.Tab.report)
+        let waiting = hub.store.agents.contains { $0.mood == .waiting }
+        let now = hub.sections.first?.title == "Jetzt dran"
+        let red = hub.changes.contains { $0.mine && $0.pipeline == "failed" }
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 4) {
+                TabChip(icon: "waveform.path.ecg", title: "Live", count: hub.store.agents.count, alert: waiting, selected: hub.tab == .live) { hub.tab = .live }
+                TabChip(icon: "tray.full", title: "Inbox", count: hub.inbox.unreadCount, alert: now, selected: hub.tab == .inbox) { hub.tab = .inbox }
+                TabChip(icon: "square.stack.3d.up", title: "Aufgaben", count: hub.brain.list.count, selected: hub.tab == .works) { hub.tab = .works }
+                TabChip(icon: "arrow.triangle.pull", title: "MRs", count: hub.changes.count, alert: red, selected: hub.tab == .changes) { hub.tab = .changes }
+                TabChip(icon: "doc.text", title: "Bericht", selected: hub.tab == .report) { hub.tab = .report }
+                Spacer(minLength: 12)
+                SearchField(prompt: "Suchen …", text: $hub.search) { listFocus = true }
+                    .frame(maxWidth: 240)
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            HStack {
-                TextField("Suchen nach Aufgabe, Agent, Text …", text: $hub.search)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit { listFocus = true }
-                if hub.tab == .inbox {
-                    Picker("", selection: $hub.filter) {
-                        ForEach(Hub.Filter.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            if hub.tab == .inbox {
+                HStack(spacing: 6) {
+                    ForEach(Hub.Filter.allCases, id: \.self) { f in
+                        FilterChip(title: f.rawValue, selected: hub.filter == f) { hub.filter = f }
                     }
-                    .labelsHidden()
-                    .fixedSize()
                 }
             }
             if hub.tab == .inbox || hub.tab == .live {
-                Text(hub.brain.summary).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "sparkles").foregroundStyle(Color.accentColor)
+                    Text(hub.brain.summary).font(.callout).fixedSize(horizontal: false, vertical: true)
+                }
+                .card(.accentColor, padding: 10, radius: 10)
             }
         }
-        .padding(12)
+        .padding(.horizontal, 16)
+        .padding(.top, 14)
+        .padding(.bottom, 12)
     }
 
     private var footer: some View {
@@ -442,8 +453,9 @@ struct HubView: View {
             }
         }
         .controlSize(.small)
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 16)
         .padding(.vertical, 8)
+        .background(Color.primary.opacity(0.03))
     }
 
     // MARK: Inbox
@@ -456,22 +468,21 @@ struct HubView: View {
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                        LazyVStack(alignment: .leading, spacing: 8, pinnedViews: [.sectionHeaders]) {
                             ForEach(sections, id: \.title) { section in
                                 Section {
                                     ForEach(section.items, id: \.id) { m in
                                         MessageRow(hub: hub, m: m) { listFocus = true }.id(m.id)
-                                        Divider()
                                     }
                                 } header: {
-                                    Text("\(section.title) (\(section.items.count))")
-                                        .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .padding(.horizontal, 12).padding(.vertical, 5)
-                                        .background(.bar)
+                                    SectionTitle(title: section.title, count: section.items.count)
+                                        .padding(.top, 8).padding(.bottom, 4)
+                                        .background(Color(nsColor: .windowBackgroundColor))
                                 }
                             }
                         }
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 16)
                     }
                     .focusable()
                     .focusEffectDisabled()
@@ -606,12 +617,13 @@ struct HubView: View {
                 empty(text)
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 0) {
+                    LazyVStack(spacing: 8) {
                         ForEach(items, id: id) { item in
-                            row(item)
-                            Divider()
+                            row(item).card(padding: 0)
                         }
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
                 }
             }
         }

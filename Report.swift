@@ -176,8 +176,7 @@ struct ReportView: View {
                     let text = kind == 0 ? reports.standup() : reports.review()
                     Text(text).font(.callout.monospaced()).textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(10)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.04)))
+                        .card(padding: 14)
                     Button("Kopieren") {
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString(text, forType: .string)
@@ -185,7 +184,7 @@ struct ReportView: View {
                     times(reports)
                 }
             }
-            .padding(14)
+            .padding(16)
         }
     }
 

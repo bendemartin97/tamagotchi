@@ -296,35 +296,46 @@ struct AgentDetailView: View {
     private func header(_ log: SessionLog?) -> some View {
         let status = agentStatus(s)
         let ticket = hub.brain.work(forSession: s)?.ticket
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 12) {
-                Avatar(look: Look.agent(name), mood: s.mood, prop: hub.prop(s), px: 5)
+        let look = Look.agent(name)
+        return VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .center, spacing: 16) {
+                Avatar(look: look, mood: s.mood, prop: hub.prop(s), px: 5)
                     .frame(width: 92, height: 82)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("\(name) · \(hub.brain.topic(s))").font(.title2.weight(.semibold)).lineLimit(1)
+                    .background(Circle().fill(Color(nsColor: look.body).opacity(0.18)).frame(width: 100, height: 100))
+                    .frame(width: 104, height: 104)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 8) {
+                        Text(name).font(.system(size: 22, weight: .bold, design: .rounded))
+                        StatusPill(text: status.text, color: status.color)
+                    }
+                    Text(hub.brain.topic(s)).font(.title3).lineLimit(1)
                     if !s.heading.isEmpty { Text(s.heading).foregroundStyle(.secondary) }
-                    Text(status.text).font(.callout).foregroundStyle(status.color)
                     if let t = ticket, !t.name.isEmpty {
                         Text("Ticket: \(shorten(t.name, 70)) · \(t.status)").font(.caption).foregroundStyle(.secondary)
                     }
                 }
                 Spacer()
-                if !s.click.isEmpty { Button("Zur Session") { performClick(s.click) } }
-                Button { hub.agentFilter = nil } label: { Image(systemName: "xmark") }
+                if !s.click.isEmpty {
+                    Button { performClick(s.click) } label: { Label("Zur Session", systemImage: "terminal") }
+                        .buttonStyle(.borderedProminent)
+                }
+                Button { hub.agentFilter = nil } label: { Image(systemName: "xmark").padding(4) }
+                    .buttonStyle(.bordered)
                     .keyboardShortcut(.cancelAction)
                     .help("Zurück zur Übersicht (Esc)")
             }
-            Picker("", selection: $hub.agentTab) {
-                Text("Überblick").tag(AgentTab.overview)
-                Text("Verlauf (\(log?.turns.count ?? 0))").tag(AgentTab.history)
-                Text("Änderungen (\(log?.files.count ?? 0))").tag(AgentTab.changes)
-                Text("Rückfragen (\(messages.filter { !$0.read }.count))").tag(AgentTab.questions)
-                Text("Verbrauch").tag(AgentTab.usage)
+            HStack(spacing: 4) {
+                let unread = messages.filter { !$0.read }.count
+                TabChip(icon: "person.text.rectangle", title: "Überblick", selected: hub.agentTab == .overview) { hub.agentTab = .overview }
+                TabChip(icon: "clock.arrow.circlepath", title: "Verlauf", count: log?.turns.count ?? 0, selected: hub.agentTab == .history) { hub.agentTab = .history }
+                TabChip(icon: "doc.badge.gearshape", title: "Änderungen", count: log?.files.count ?? 0, selected: hub.agentTab == .changes) { hub.agentTab = .changes }
+                TabChip(icon: "questionmark.bubble", title: "Rückfragen", count: unread, alert: unread > 0, selected: hub.agentTab == .questions) { hub.agentTab = .questions }
+                TabChip(icon: "chart.xyaxis.line", title: "Verbrauch", selected: hub.agentTab == .usage) { hub.agentTab = .usage }
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
         }
-        .padding(12)
+        .padding(.horizontal, 16)
+        .padding(.top, 20)
+        .padding(.bottom, 12)
     }
 
     // MARK: Overview
@@ -437,8 +448,7 @@ struct AgentDetailView: View {
                 .padding(.leading, 18)
             }
         }
-        .padding(10)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(running ? 0.07 : 0.035)))
+        .card(running ? .blue : t.errors > 0 ? .orange : nil, padding: 12)
         .contentShape(Rectangle())
         .onTapGesture { if open { hub.expanded.remove(key) } else { hub.expanded.insert(key) } }
     }
@@ -609,13 +619,11 @@ struct AgentDetailView: View {
     // MARK: Building blocks
 
     private func box<Content: View>(_ title: String, @ViewBuilder _ content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 8) {
+            SectionTitle(title: title)
             content()
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(10)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.035)))
+        .card(padding: 14)
     }
 }
 

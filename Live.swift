@@ -76,20 +76,19 @@ struct AgentSidebar: View {
         let order: [Mood: Int] = [.waiting: 0, .working: 1, .done: 2]
         let list = hub.store.agents.sorted { (order[$0.mood] ?? 3, $0.id) < (order[$1.mood] ?? 3, $1.id) }
         VStack(alignment: .leading, spacing: 0) {
-            Text("Agenten (\(list.count))").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                .padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 6)
+            SectionTitle(title: "Agenten", count: list.count)
+                .padding(.horizontal, 14).padding(.top, 44).padding(.bottom, 8)
             if list.isEmpty {
                 Text("Keine Session aktiv.").font(.callout).foregroundStyle(.secondary).padding(12)
                 Spacer()
             } else {
                 ScrollView {
-                    VStack(spacing: 4) { ForEach(list, id: \.id) { row($0) } }
-                        .padding(.horizontal, 8).padding(.bottom, 8)
+                    VStack(spacing: 6) { ForEach(list, id: \.id) { row($0) } }
+                        .padding(.horizontal, 10).padding(.bottom, 10)
                 }
             }
         }
-        .frame(width: 250)
-        .background(Color.primary.opacity(0.03))
+        .frame(width: 260)
     }
 
     private func row(_ s: Session) -> some View {
@@ -99,10 +98,10 @@ struct AgentSidebar: View {
         return HStack(alignment: .top, spacing: 8) {
             Avatar(look: Look.agent(hub.store.name(for: s.id)), mood: s.mood, prop: hub.prop(s), px: 3)
                 .frame(width: 56, height: 50)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(hub.store.name(for: s.id)).font(.subheadline.weight(.semibold))
-                Text(hub.brain.topic(s)).font(.caption).lineLimit(2)
-                Text(status.text).font(.caption2).foregroundStyle(status.color)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(hub.store.name(for: s.id)).font(.system(size: 13, weight: .semibold))
+                Text(hub.brain.topic(s)).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                StatusPill(text: status.text, color: status.color)
                 if s.mood == .working, !s.detail.isEmpty {
                     Text(s.detail).font(.caption2.monospaced()).foregroundStyle(.tertiary).lineLimit(1)
                 }
@@ -112,8 +111,7 @@ struct AgentSidebar: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(6)
-        .background(RoundedRectangle(cornerRadius: 8).fill(selected ? Color.accentColor.opacity(0.18) : s.mood == .waiting ? Color.orange.opacity(0.1) : .clear))
+        .card(selected ? .accentColor : s.mood == .waiting ? .orange : nil, padding: 8, radius: 10)
         .contentShape(Rectangle())
         .onTapGesture(count: 2) { performClick(s.click) }
         .onTapGesture { hub.agentFilter = selected ? nil : s.id }
@@ -145,14 +143,15 @@ struct LiveView: View {
     var body: some View {
         let _ = hub.tick
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 20) {
                 stats
                 agents
                 changes
                 elsewhere
                 activity
             }
-            .padding(12)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 16)
         }
     }
 
@@ -166,24 +165,20 @@ struct LiveView: View {
         let merged = State.shared.data.changes.values.filter { ($0.mergedAt ?? .distantPast) >= today }.count
         let reviews = State.shared.data.changes.values.filter { $0.isOpen && $0.reviewer && !$0.mine && !$0.draft }.count
         let feedback = brain.feedback.items
-        return Flow(spacing: 8) {
-            pill("⚙️", "\(sessions.filter { $0.mood == .working }.count) arbeiten")
-            pill("✋", "\(sessions.filter { $0.mood == .waiting }.count) warten", alert: sessions.contains { $0.mood == .waiting })
-            pill("✅", "\(sessions.filter { $0.mood == .done }.count) fertig")
-            pill("⏳", "\(mine.filter { $0.pipeline == "running" || $0.pipeline == "pending" }.count) Pipelines laufen")
-            pill("🔴", "\(mine.filter { $0.pipeline == "failed" }.count) rot", alert: mine.contains { $0.pipeline == "failed" })
-            pill("👀", "\(reviews) Reviews für dich", alert: reviews > 0)
-            pill("🕊", "\(mine.filter { !$0.draft && $0.review.isEmpty }.count) warten auf Review")
-            pill("📸", "\(feedback.filter(\.needsAgent).count) Feedback in Arbeit · \(feedback.filter(\.needsMartin).count) für dich")
-            pill("📅", "Heute \(turns) Turns fertig · \(merged) gemergt")
+        let waiting = sessions.filter { $0.mood == .waiting }.count
+        let red = mine.filter { $0.pipeline == "failed" }.count
+        return LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 8)], spacing: 8) {
+            StatTile(icon: "gearshape.2.fill", value: "\(sessions.filter { $0.mood == .working }.count)", label: "arbeiten", tint: .blue)
+            StatTile(icon: "hand.raised.fill", value: "\(waiting)", label: "warten auf dich", tint: .orange, alert: waiting > 0)
+            StatTile(icon: "checkmark.circle.fill", value: "\(sessions.filter { $0.mood == .done }.count)", label: "fertig", tint: .green)
+            StatTile(icon: "hourglass", value: "\(mine.filter { $0.pipeline == "running" || $0.pipeline == "pending" }.count)", label: "Pipelines laufen", tint: .teal)
+            StatTile(icon: "xmark.octagon.fill", value: "\(red)", label: "Pipelines rot", tint: .red, alert: red > 0)
+            StatTile(icon: "eye.fill", value: "\(reviews)", label: "Reviews für dich", tint: .purple, alert: reviews > 0)
+            StatTile(icon: "bubble.left.and.bubble.right.fill", value: "\(mine.filter { !$0.draft && $0.review.isEmpty }.count)", label: "ohne Review", tint: .indigo)
+            StatTile(icon: "camera.viewfinder", value: "\(feedback.filter(\.needsMartin).count)/\(feedback.filter(\.needsAgent).count)", label: "Feedback dich/Agent", tint: .pink)
+            StatTile(icon: "calendar", value: "\(turns)", label: "Turns heute", tint: .gray)
+            StatTile(icon: "arrow.triangle.merge", value: "\(merged)", label: "heute gemergt", tint: .mint)
         }
-    }
-
-    private func pill(_ icon: String, _ text: String, alert: Bool = false) -> some View {
-        Text("\(icon) \(text)")
-            .font(.caption)
-            .padding(.horizontal, 8).padding(.vertical, 4)
-            .background(Capsule().fill(alert ? Color.orange.opacity(0.25) : Color.primary.opacity(0.07)))
     }
 
     // MARK: Agents
@@ -214,23 +209,22 @@ struct LiveView: View {
         let feedback = brain.feedback.items(forSession: s.id)
         if !feedback.isEmpty { meta.append("\(feedback.count) Feedback") }
 
-        return HStack(alignment: .top, spacing: 10) {
+        return HStack(alignment: .top, spacing: 12) {
             Avatar(look: Look.agent(store.name(for: s.id)), mood: s.mood, prop: hub.prop(s), px: 4)
                 .frame(width: 74, height: 66)
-            card(s, peek: peek, links: links, status: status, color: color, meta: meta)
+                .background(Circle().fill(color.opacity(0.08)).frame(width: 84, height: 84))
+            agentBody(s, peek: peek, links: links, status: status, color: color, meta: meta)
         }
-        .padding(10)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.04)))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(color.opacity(s.mood == .waiting ? 0.6 : 0.15)))
+        .card(s.mood == .waiting ? .orange : nil, padding: 14)
     }
 
-    private func card(_ s: Session, peek: Peek?, links: [(String, () -> Void)], status: String, color: Color, meta: [String]) -> some View {
+    private func agentBody(_ s: Session, peek: Peek?, links: [(String, () -> Void)], status: String, color: Color, meta: [String]) -> some View {
         VStack(alignment: .leading, spacing: 5) {
-            HStack(alignment: .firstTextBaseline) {
-                Circle().fill(color).frame(width: 8, height: 8)
-                Text("\(store.name(for: s.id)) · \(brain.topic(s))").font(.headline).lineLimit(1)
+            HStack(alignment: .center) {
+                Text(store.name(for: s.id)).font(.system(size: 15, weight: .bold))
+                Text(brain.topic(s)).font(.system(size: 13)).foregroundStyle(.secondary).lineLimit(1)
                 Spacer()
-                Text(status).font(.caption).foregroundStyle(color)
+                StatusPill(text: status, color: color)
             }
             if !s.heading.isEmpty { Text(s.heading).font(.subheadline).foregroundStyle(.secondary) }
             if let p = peek, !p.prompt.isEmpty {
@@ -285,6 +279,7 @@ struct LiveView: View {
                 }
             }
         }
+        .card()
     }
 
     private func icon(_ c: Change) -> String {
@@ -312,6 +307,7 @@ struct LiveView: View {
                 Text("\(a.icon) \(a.phrase)").font(.callout).foregroundStyle(.secondary).lineLimit(1)
             }
         }
+        .card()
     }
 
     // MARK: History
@@ -335,9 +331,10 @@ struct LiveView: View {
                 }
             }
         }
+        .card()
     }
 
     private func heading(_ title: String, _ count: Int) -> some View {
-        Text("\(title) (\(count))").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+        SectionTitle(title: title, count: count)
     }
 }

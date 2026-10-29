@@ -1,18 +1,18 @@
 import Foundation
 
-/// Haiku sortiert „Du bist dran“ in jetzt, kann warten und ausblenden, damit Menü und Zusammenfassung nicht
-/// mit Altlasten volllaufen. Läuft nur, wenn Martin aktiv ist und sich die Liste geändert hat (höchstens alle
-/// 2 min, sonst stündlich wegen der Alterung). Bis zur ersten Antwort und bei Fehlern gelten einfache Regeln.
+/// Haiku sorts „Du bist dran“ (your turn) into now, can wait and hide, so the menu and summary don't
+/// fill up with stale items. Runs only when Martin is active and the list has changed (at most every
+/// 2 min, otherwise hourly because of aging). Until the first response and on errors, simple rules apply.
 final class Triage {
     enum Rank: String, Codable { case now, later, hidden }
 
     private struct Saved: Codable {
         var ranks: [String: Rank] = [:]
         var sentence = ""
-        /// Liste, zu der ranks und sentence gehören.
+        /// List that ranks and sentence belong to.
         var input = ""
         var at = Date.distantPast
-        /// Seit wann ein Punkt auf der Liste steht.
+        /// Since when an item has been on the list.
         var since: [String: Date] = [:]
     }
 
@@ -35,10 +35,10 @@ final class Triage {
         return a.group.isEmpty ? .now : .later
     }
 
-    /// Hat Haiku diesen Punkt schon eingestuft (sonst gilt die Grundregel)?
+    /// Has Haiku already classified this item (otherwise the default rule applies)?
     func ranked(_ a: Attention) -> Bool { saved.ranks[Self.key(a)] != nil }
 
-    /// Haikus Satz, solange die Liste noch dieselbe ist, zu der er geschrieben wurde.
+    /// Haiku's sentence, as long as the list is still the same one it was written for.
     func sentence(for you: [Attention]) -> String? {
         saved.input == signature(you) && !saved.sentence.isEmpty ? saved.sentence : nil
     }

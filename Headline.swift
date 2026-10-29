@@ -1,7 +1,7 @@
 import Foundation
 
-/// Kurze Überschrift für ein Mini-Haustier. Der ai-title von Claude Code entsteht aus dem ersten Prompt und
-/// bleibt oft an Ticket-IDs oder Details hängen; nach jedem fertigen Turn fasst Haiku die Session neu zusammen.
+/// Short headline for a mini pet. Claude Code's ai-title is generated from the first prompt and
+/// often stays stuck on ticket IDs or details; after each completed turn, Haiku re-summarizes the session.
 final class Headliner {
     let store: Store
     private var running: Set<String> = []
@@ -9,7 +9,7 @@ final class Headliner {
 
     init(store: Store) { self.store = store }
 
-    /// Nach jedem fertigen Turn; während des ersten Turns höchstens alle 90 s, solange es noch keine gibt.
+    /// After each completed turn; during the first turn at most every 90 s, as long as there is none yet.
     func refresh(_ s: Session, done: Bool) {
         guard s.isAgent, !s.transcript.isEmpty, !running.contains(s.id) else { return }
         if !done && (s.headline.isEmpty == false || Date().timeIntervalSince(lastRun[s.id] ?? .distantPast) < 90) { return }
@@ -54,7 +54,7 @@ final class Headliner {
     }
 }
 
-/// Martins Prompts und die letzte Antwort von Claude aus dem Transkript-Ende.
+/// Martin's prompts and Claude's last reply from the end of the transcript.
 func transcriptTail(_ path: String) -> (prompts: [String], answer: String)? {
     guard let h = FileHandle(forReadingAtPath: path) else { return nil }
     defer { try? h.close() }

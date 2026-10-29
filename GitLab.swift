@@ -1,8 +1,8 @@
 import Foundation
 
-/// Fragt alle 3 Minuten per glab Martins offene MRs, Review-Anfragen an ihn und kürzlich gemergte MRs ab.
-/// Der Stand liegt in state.json, Wechsel seit der letzten Abfrage (auch über einen Neustart hinweg) gehen als
-/// Signale an den Notifier.
+/// Polls Martin's open MRs, review requests addressed to him, and recently merged MRs via glab every 3 minutes.
+/// The state is kept in state.json; changes since the last poll (even across a restart) are sent as
+/// signals to the notifier.
 final class GitLabWatch {
     var onSignals: (([Signal]) -> Void)?
     private var me: String?
@@ -96,14 +96,14 @@ final class GitLabWatch {
             if let s = verify(&c) { signals.append(s) }
             out[c.key] = c
         }
-        // Verschwunden, aber nicht unter den gemergten: geschlossen.
+        // Gone, but not among the merged ones: closed.
         for (key, old) in known where old.isOpen && out[key] == nil {
             var c = old
             c.state = (glab("\(old.api)/merge_requests/\(old.number)") as? [String: Any])?["state"] as? String ?? "closed"
             if c.state == "merged" { signals.append(Signal(kind: .merged, change: c)) }
             out[key] = c
         }
-        // Gemergte, die aus der Liste gefallen sind, bis 3 Tage nach dem Merge weiter kontrollieren.
+        // Keep checking merged MRs that have dropped off the list for up to 3 days after the merge.
         for (key, old) in known where out[key] == nil && old.state == "merged" {
             var c = old
             if let s = verify(&c) { signals.append(s) }
@@ -133,7 +133,7 @@ final class GitLabWatch {
         firstName((m["author"] as? [String: Any])?["name"] as? String ?? "Jemand")
     }
 
-    /// Neue Kommentare von anderen seit `since`, gebündelt.
+    /// New comments from others since `since`, bundled together.
     private func comments(_ c: Change, since: Date, me: String) -> Signal? {
         guard let notes = glab("\(c.api)/merge_requests/\(c.number)/notes?sort=desc&order_by=created_at&per_page=30") as? [[String: Any]]
         else { return nil }
@@ -147,8 +147,8 @@ final class GitLabWatch {
         return Signal(kind: .comment, change: c, who: who, count: fresh.count, excerpt: body)
     }
 
-    /// Ist die gemergte Änderung noch im Zielbranch? Erst über die Abstammung, sonst über den Inhalt
-    /// (Squash, Rebase, Wiederherstellung).
+    /// Is the merged change still in the target branch? First check via ancestry, otherwise via content
+    /// (squash, rebase, restoration).
     private func verify(_ c: inout Change) -> Signal? {
         guard !c.mergeSha.isEmpty, c.lost != "lost", (c.mergedAt ?? .distantPast) > Date().addingTimeInterval(-3 * 86400),
               Date().timeIntervalSince(c.lostChecked ?? .distantPast) > 30 * 60 else { return nil }

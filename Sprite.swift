@@ -13,8 +13,8 @@ enum Palette {
     static let confetti = [heart, alert, check, NSColor(srgbRed: 0.35, green: 0.6, blue: 0.95, alpha: 1)]
 }
 
-/// Aussehen eines Haustiers: Fellfarbe und ein Accessoire. Das große bleibt orange ohne Accessoire, jeder Agent
-/// bekommt aus seinem Spitznamen ein festes eigenes, damit Mini, Sprechblase und Übersicht zusammenpassen.
+/// Pet appearance: fur color and an accessory. The big one stays orange with no accessory; each agent
+/// gets a fixed one of its own from its nickname, so the mini, speech bubble and overview match.
 struct Look {
     enum Accessory: CaseIterable { case none, cap, beanie, glasses, bow, antenna, headphones, scarf }
 
@@ -27,7 +27,7 @@ struct Look {
     static let standard = Look()
     private static let hues: [CGFloat] = [0.0, 0.14, 0.3, 0.46, 0.58, 0.68, 0.78, 0.88, 0.96, 0.11]
 
-    /// Über den Index in petNames: keine zwei Spitznamen teilen sich Farbe und Accessoire.
+    /// Via the index in petNames: no two nicknames share a color and accessory.
     static func agent(_ name: String) -> Look {
         let hash = Int(name.utf8.reduce(UInt32(5381)) { ($0 &<< 5) &+ $0 &+ UInt32($1) } % 1000)
         let i: Int = petNames.firstIndex(of: name) ?? hash
@@ -41,16 +41,16 @@ struct Look {
     }
 }
 
-/// Was das Haustier gerade in der Hand hat oder tut, abgeleitet aus dem echten Arbeitsstand.
+/// What the pet is currently holding or doing, derived from the actual work state.
 enum Prop {
     case none
-    /// Brief: Rückfrage an Martin.
+    /// Letter: follow-up question for Martin.
     case letter
-    /// Sanduhr: Pipeline läuft.
+    /// Hourglass: pipeline is running.
     case hourglass
-    /// Augen: Änderung wartet auf Sichtprüfung.
+    /// Eyes: change is waiting for visual review.
     case eyes
-    /// Konfetti und Partyhut: Aufgabe wirklich erledigt (abgenommen, gemergt).
+    /// Confetti and party hat: task truly done (approved, merged).
     case party
 }
 
@@ -59,7 +59,7 @@ let spriteRows = 10
 
 struct PetPose {
     var mood: Mood
-    /// Ticks seit dem letzten Stimmungswechsel.
+    /// Ticks since the last mood change.
     var t: Int
     var tick: Int
     var petted = 0
@@ -85,7 +85,7 @@ struct PetPose {
     }
 }
 
-/// Zeichnet das Haustier in einer geflippten View; `origin` ist die linke obere Ecke im Ruhezustand.
+/// Draws the pet in a flipped view; `origin` is the top-left corner at rest.
 func drawPet(_ pose: PetPose, at origin: NSPoint, px: CGFloat) {
     let mood = pose.mood, t = pose.t, tick = pose.tick, look = pose.look
     let o = NSPoint(x: origin.x, y: origin.y - CGFloat(pose.lift) * px)
@@ -149,7 +149,7 @@ func drawPet(_ pose: PetPose, at origin: NSPoint, px: CGFloat) {
     case .waiting:
         if (t / 4) % 2 == 0 { rect(13...13, -5 ... -3, Palette.alert); p(13, -1, Palette.alert) }
     case .done:
-        // Nur ein Haken: die Antwort ist da, die Aufgabe ist damit noch nicht erledigt (das wäre .party).
+        // Just a checkmark: the answer is in, but that doesn't mean the task is done (that would be .party).
         for (x, y) in [(11, -2), (12, -1), (13, -2), (14, -3), (15, -4)] { p(x, y, Palette.check) }
     case .working:
         for i in 0..<3 where (t / 3) % 4 > i { p(5 + i * 2, -2, ink.withAlphaComponent(0.6)) }
@@ -186,7 +186,7 @@ private func drawAccessory(_ look: Look, party: Bool, p: (Int, Int, NSColor) -> 
     }
 }
 
-/// Haustier als Bild für die Übersicht.
+/// Pet as an image for the overview.
 func petImage(_ pose: PetPose, px: CGFloat) -> NSImage {
     let pad: CGFloat = 6 * px
     let size = NSSize(width: CGFloat(spriteCols + 4) * px, height: CGFloat(spriteRows) * px + pad + px)
@@ -246,7 +246,7 @@ func drawShadow(centerX: CGFloat, y: CGFloat, width: CGFloat, lift: Int) {
     NSBezierPath(ovalIn: NSRect(x: centerX - w / 2, y: y, width: w, height: width / 12)).fill()
 }
 
-/// Sprechblase mit Spitze nach unten, deren Unterkante bei `bottom` liegt (geflippte View).
+/// Speech bubble with the tip pointing down, whose bottom edge sits at `bottom` (flipped view).
 func drawBubble(in bounds: NSRect, bottom: CGFloat, title: String?, body: String, accent: NSColor) {
     let text = NSMutableAttributedString(string: title.map { $0 + "\n" } ?? "", attributes: [
         .font: NSFont.systemFont(ofSize: 11.5, weight: .semibold),

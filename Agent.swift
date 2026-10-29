@@ -2,7 +2,7 @@ import AppKit
 import Charts
 import SwiftUI
 
-// MARK: Transkript
+// MARK: Transcript
 
 struct ToolCall {
     var id: String
@@ -12,14 +12,14 @@ struct ToolCall {
     var error = false
 }
 
-/// Ein Turn: Martins Eingabe bis zur letzten Antwort davor.
+/// One turn: Martin's input up to the last reply before the next one.
 struct Turn {
     var prompt: String
     var start: Date
     var end: Date
     var tools: [ToolCall] = []
     var answer = ""
-    /// Endete mit einer Rückfrage (AskUserQuestion).
+    /// Ended with a follow-up question (AskUserQuestion).
     var asked = false
     var output = 0
 
@@ -31,10 +31,10 @@ struct UsagePoint {
     var context: Int
 }
 
-/// Was im ganzen Transkript einer Session steckt: Turns mit Werkzeugen, bearbeitete Dateien, Verbrauch.
+/// Everything contained in a session's full transcript: turns with tools, edited files, usage.
 struct SessionLog {
     var turns: [Turn] = []
-    /// Pfad → Anzahl der Bearbeitungen.
+    /// Path → number of edits.
     var files: [String: Int] = [:]
     var usage: [UsagePoint] = []
     var model = ""
@@ -46,10 +46,10 @@ struct SessionLog {
     var worked: TimeInterval { turns.reduce(0) { $0 + $1.end.timeIntervalSince($1.start) } }
 }
 
-/// Liest ein Transkript stückweise ab der letzten Position weiter. Läuft nur auf der Queue von SessionLogs.
+/// Reads a transcript incrementally, resuming from the last position. Runs only on SessionLogs' queue.
 private final class LogParser {
     var log = SessionLog()
-    /// Stand für die Oberfläche, nur auf dem Main-Thread gesetzt.
+    /// State for the UI, set only on the main thread.
     var snapshot: SessionLog?
     var offset: UInt64 = 0
     private var seen: Set<String> = []
@@ -146,14 +146,14 @@ private final class LogParser {
     }
 }
 
-/// Transkripte der Agenten, im Hintergrund gelesen und bei jeder Änderung der Datei fortgesetzt.
+/// Agent transcripts, read in the background and resumed whenever the file changes.
 final class SessionLogs {
     var onUpdate: (() -> Void)?
     private var parsers: [String: LogParser] = [:]
     private var busy: Set<String> = []
     private let queue = DispatchQueue(label: "tamagotchi.logs", qos: .utility)
 
-    /// Aktueller Stand; nil, solange das Transkript zum ersten Mal gelesen wird.
+    /// Current state; nil while the transcript is being read for the first time.
     func log(_ path: String) -> SessionLog? {
         guard !path.isEmpty else { return nil }
         let p = parsers[path] ?? LogParser()
@@ -181,18 +181,18 @@ struct RepoState {
     var dir: String
     var branch = ""
     var base = ""
-    /// `git status --porcelain`-Zeilen.
+    /// `git status --porcelain` lines.
     var dirty: [String] = []
-    /// Commits über dem Basisbranch.
+    /// Commits ahead of the base branch.
     var ahead = 0
-    /// Noch nicht gepushte Commits; nil ohne Upstream.
+    /// Commits not yet pushed; nil without an upstream.
     var unpushed: Int?
     var lastCommit = ""
 
     var name: String { URL(fileURLWithPath: dir).lastPathComponent }
 }
 
-/// Git-Stand der Repos eines Agenten, höchstens alle 15 s neu.
+/// Git state of an agent's repos, refreshed at most every 15 s.
 final class GitStates {
     var onUpdate: (() -> Void)?
     private var cache: [String: (Date, RepoState)] = [:]
@@ -231,7 +231,7 @@ final class GitStates {
         return s
     }
 
-    /// Uncommittete Änderungen und Commits über der Basis als .diff-Datei in VS Code.
+    /// Uncommitted changes and commits ahead of the base as a .diff file in VS Code.
     static func openDiff(_ s: RepoState) {
         DispatchQueue.global(qos: .userInitiated).async {
             let log = git(s.dir, ["log", "--stat", "\(s.base)..HEAD"]) ?? ""
@@ -245,7 +245,7 @@ final class GitStates {
     }
 }
 
-/// Git-Wurzel eines Pfads (Ordner mit .git-Datei oder -Ordner).
+/// Git root of a path (folder containing a .git file or folder).
 func gitRoot(_ path: String) -> String? {
     var url = URL(fileURLWithPath: path)
     while url.path != "/" {
@@ -255,13 +255,13 @@ func gitRoot(_ path: String) -> String? {
     return nil
 }
 
-// MARK: Ansicht
+// MARK: View
 
 enum AgentTab: String, CaseIterable {
     case overview = "Überblick", history = "Verlauf", changes = "Änderungen", questions = "Rückfragen", usage = "Verbrauch"
 }
 
-/// Ein Agent im Detail: Überblick, Verlauf der Turns, Änderungen, Rückfragen und Verbrauch.
+/// One agent in detail: overview, turn history, changes, follow-up questions and usage.
 struct AgentDetailView: View {
     @ObservedObject var hub: Hub
     let session: Session
@@ -291,7 +291,7 @@ struct AgentDetailView: View {
         }
     }
 
-    // MARK: Kopf
+    // MARK: Header
 
     private func header(_ log: SessionLog?) -> some View {
         let status = agentStatus(s)
@@ -327,7 +327,7 @@ struct AgentDetailView: View {
         .padding(12)
     }
 
-    // MARK: Überblick
+    // MARK: Overview
 
     @ViewBuilder private func overview(_ log: SessionLog?) -> some View {
         let turns = log?.turns.filter { !$0.prompt.isEmpty } ?? []
@@ -392,7 +392,7 @@ struct AgentDetailView: View {
         .controlSize(.small)
     }
 
-    // MARK: Verlauf
+    // MARK: History
 
     @ViewBuilder private func history(_ log: SessionLog?) -> some View {
         if let log {
@@ -443,7 +443,7 @@ struct AgentDetailView: View {
         .onTapGesture { if open { hub.expanded.remove(key) } else { hub.expanded.insert(key) } }
     }
 
-    // MARK: Änderungen
+    // MARK: Changes
 
     private func repos(_ log: SessionLog?) -> [String] {
         var dirs: [String] = []
@@ -532,7 +532,7 @@ struct AgentDetailView: View {
         return path
     }
 
-    // MARK: Rückfragen
+    // MARK: Follow-up questions
 
     private var messages: [Message] {
         let key = hub.brain.works.key(forProject: s.project)
@@ -558,7 +558,7 @@ struct AgentDetailView: View {
         }
     }
 
-    // MARK: Verbrauch
+    // MARK: Usage
 
     @ViewBuilder private func usage(_ log: SessionLog?) -> some View {
         if let log {
@@ -606,7 +606,7 @@ struct AgentDetailView: View {
         }
     }
 
-    // MARK: Bausteine
+    // MARK: Building blocks
 
     private func box<Content: View>(_ title: String, @ViewBuilder _ content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 6) {

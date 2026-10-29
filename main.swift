@@ -1,12 +1,12 @@
-// Desktop-Tamagotchi für Claude Code / Codex.
-// Liest ~/.claude/tamagotchi/events.jsonl (geschrieben von ~/.claude/hooks/pet.sh und notify.sh),
-// beobachtet Martins MRs/PRs auf GitLab und GitHub, verknüpft sie mit ClickUp-Tickets und Workspaces, sagt,
-// was gerade Martins Aufmerksamkeit braucht, chattet über `claude -p` und gibt Aufträge an Claude Code weiter.
-// Klick: öffnet die dringendste Meldung, sonst den Chat (auch ⌃⌥Leertaste). Doppelklick oder ⌃⌥I: Übersicht
-// (Live, Inbox, Aufgaben, MRs, Bericht, Agentenansicht). Ziehen: verschieben. Rechtsklick: Menü. Menüleiste: Zähler
-// und Kurzmenü. Meldungen stehen 2 min in der Blase und bleiben in der Inbox, bis Martin sie erledigt. Jede
-// Agent-Session bekommt ein Mini-Haustier, das hinterherläuft. Bei offener Übersicht und im Ruhe-Modus
-// (Bildschirmfreigabe oder von Hand) sind die Haustiere ausgeblendet.
+// Desktop tamagotchi for Claude Code / Codex.
+// Reads ~/.claude/tamagotchi/events.jsonl (written by ~/.claude/hooks/pet.sh and notify.sh),
+// watches Martin's MRs/PRs on GitLab and GitHub, links them to ClickUp tickets and workspaces, tells
+// what currently needs Martin's attention, chats via `claude -p` and hands tasks off to Claude Code.
+// Click: opens the most urgent notification, otherwise the chat (also ⌃⌥Space). Double-click or ⌃⌥I: overview
+// (Live, Inbox, Tasks, MRs, Report, Agent view). Drag: move. Right-click: menu. Menu bar: counter
+// and quick menu. Notifications stay in the bubble for 2 min and remain in the inbox until Martin resolves them. Each
+// agent session gets a mini pet that follows along. While the overview is open and in quiet mode
+// (screen sharing or manual), the pets are hidden.
 
 import AppKit
 import Carbon
@@ -15,7 +15,7 @@ final class KeyPanel: NSPanel {
     override var canBecomeKey: Bool { true }
 }
 
-/// Globale Tastenkürzel mit ⌃⌥ über Carbon (braucht keine Bedienungshilfen-Freigabe).
+/// Global ⌃⌥ keyboard shortcuts via Carbon (no accessibility permission needed).
 enum Hotkey {
     private static var handlers: [UInt32: () -> Void] = [:]
     private static var refs: [EventHotKeyRef?] = []
@@ -61,12 +61,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var gitlab: GitLabWatch!
     var github: GitHubWatch!
     var clickup: ClickUpWatch!
-    /// Sessions, deren Mini gerade feiert (Abnahme, Merge).
+    /// Sessions whose mini is currently celebrating (acceptance, merge).
     var parties: [String: Date] = [:]
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Nur eine Instanz: macOS startet die App z. B. nach der Bildschirmaufnahme-Freigabe selbst neu,
-        // zusätzlich zum LaunchAgent. Die neueste gewinnt.
+        // Single instance only: macOS restarts the app itself, e.g. after the screen recording permission is granted,
+        // in addition to the LaunchAgent. The newest one wins.
         let me = ProcessInfo.processInfo.processIdentifier
         for other in NSRunningApplication.runningApplications(withBundleIdentifier: "com.martinbende.tamagotchi")
         where other.processIdentifier != me {
@@ -152,7 +152,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in self?.everyMinute() }
     }
 
-    /// Nach dem Ruhe-Modus eine einzige Zusammenfassung statt vieler Blasen.
+    /// After quiet mode, a single summary instead of many bubbles.
     private func quietEnded(_ since: Date) {
         let missed = store.inbox.active.filter { !$0.read && $0.updated >= since }
         guard !missed.isEmpty else { return }
@@ -173,8 +173,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Requisite eines Minis aus dem echten Stand: Brief bei Rückfrage, Augen bei Sichtprüfung, Sanduhr bei
-    /// laufender Pipeline, Party nach Abnahme oder Merge.
+    /// Prop for a mini based on the real state: letter for a pending question, eyes for visual review, hourglass for
+    /// a running pipeline, party after acceptance or merge.
     private func prop(for s: Session) -> Prop {
         if let until = parties[s.id], Date() < until { return .party }
         let items = feedback.items(forSession: s.id)
@@ -206,7 +206,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Ticket ist in ClickUp erledigt worden: feiern.
+    /// Ticket was completed in ClickUp: celebrate.
     private func ticketsChanged(_ before: [String: Ticket]) {
         for (id, t) in State.shared.data.tickets where t.finished {
             guard let old = before[id], !old.status.isEmpty, !old.finished else { continue }
@@ -219,8 +219,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         brain.refresh()
     }
 
-    /// Hunger, Feierabend-Spruch und Erinnerungen um 9:30, 13:30 und 16:30 an Werktagen (nur wenn
-    /// Martin gerade aktiv ist, höchstens einmal pro Slot).
+    /// Hunger, end-of-day quip and reminders at 9:30, 13:30 and 16:30 on weekdays (only if
+    /// Martin is currently active, at most once per slot).
     private func everyMinute() {
         vitals.decay()
         let now = Date()
@@ -258,8 +258,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 extension AppDelegate {
-    /// Werktags ab 8 Uhr beim ersten Lebenszeichen die Standup-Notiz, ab 18 Uhr der Tagesrückblick mit den Zeiten,
-    /// je einmal pro Tag als Meldung, die den Bericht öffnet.
+    /// On weekdays from 8 am, the standup note at first sign of life; from 6 pm, the daily recap with times,
+    /// each once per day as a notification that opens the report.
     func reportNudges(day: String, hour: Int, weekday: Int, active: Bool) {
         guard active, (2...6).contains(weekday), let reports = hub.reports else { return }
         let d = UserDefaults.standard

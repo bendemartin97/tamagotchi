@@ -13,31 +13,31 @@ struct Session: Codable {
     var project = ""
     var agent = ""
     var text = ""
-    /// Letzter Tool-Aufruf, z. B. "Bash · ws test --parallel".
+    /// Last tool call, e.g. "Bash · ws test --parallel".
     var detail = ""
-    /// Session-Titel aus dem Transkript (custom-title oder ai-title).
+    /// Session title from the transcript (custom-title or ai-title).
     var title = ""
-    /// Kurze Überschrift von Haiku (siehe Headliner), sonst title.
+    /// Short headline from Haiku (see Headliner), otherwise title.
     var headline = ""
     var transcript = ""
-    /// Startordner der Session (CLAUDE_PROJECT_DIR), für `claude --resume`.
+    /// Session start directory (CLAUDE_PROJECT_DIR), for `claude --resume`.
     var root = ""
-    /// Letztes Hook-Event; nach "pretool" läuft gerade ein Werkzeug, das lange dauern darf.
+    /// Last hook event; after "pretool" a tool is running that may take a long time.
     var lastEvent = ""
-    /// Ersetzt ✋/✅ in der Sprechblase (MRs, Aufträge).
+    /// Replaces ✋/✅ in the speech bubble (MRs, tasks).
     var icon = ""
     var click: [String] = []
     var updated = Date()
-    /// Echte Agent-Session mit eigenem Mini-Haustier; MR-Meldungen sind keine.
+    /// Real agent session with its own mini pet; MR notifications are not.
     var isAgent = true
-    /// Zeitpunkt eines Stop-Events, das noch nicht als „fertig“ gilt (siehe Store.settle).
+    /// Time of a stop event that does not yet count as "done" (see Store.settle).
     var stopAt: Date?
-    /// Beginn des laufenden bzw. letzten Turns. Die Live-Felder sind optional, damit ältere state.json lesbar bleibt.
+    /// Start of the current or last turn. The live fields are optional so older state.json stays readable.
     var busySince: Date?
-    /// Werkzeugaufrufe im laufenden Turn und die letzten davon.
+    /// Tool calls in the current turn and the most recent ones.
     var tools: Int?
     var recent: [String]?
-    /// Dauer des letzten fertigen Turns in Sekunden.
+    /// Duration of the last finished turn in seconds.
     var lastTurn: TimeInterval?
 
     var label: String { project.isEmpty ? agent : project }
@@ -54,14 +54,14 @@ final class Store {
     var lastActivity = Date()
     var onChange: (() -> Void)?
     var onDone: ((Session) -> Void)?
-    /// Feste Namen für Sessions, die das Haustier selbst gestartet hat.
+    /// Fixed names for sessions the pet started itself.
     var labels: [String: String] = [:]
-    /// Abgeschlossene Aufträge: späte Hook-Events überschreiben das Ergebnis nicht.
+    /// Completed tasks: late hook events don't overwrite the result.
     var sealed: Set<String> = []
-    /// Überschriften überleben das Quittieren einer fertigen Session.
+    /// Headlines survive acknowledging a finished session.
     var headlines: [String: String] = [:]
     var onWorking: ((Session) -> Void)?
-    /// Jedes Hook-Ereignis einer Session (für die Zeiterfassung).
+    /// Every hook event of a session (for time tracking).
     var onEvent: ((Session) -> Void)?
     let inbox = Inbox()
     private var names: [String: String] = [:]
@@ -87,7 +87,7 @@ final class Store {
         Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { [weak self] _ in self?.poll() }
     }
 
-    /// Fester Spitzname pro Session, aus der ID abgeleitet und unter den laufenden Sessions eindeutig.
+    /// Fixed nickname per session, derived from the ID and unique among the running sessions.
     func name(for id: String) -> String {
         if let n = names[id] { return n }
         let used = Set(sessions.keys.compactMap { names[$0] })
@@ -111,7 +111,7 @@ final class Store {
         return Date().timeIntervalSince(lastActivity) > 20 * 60 ? .sleeping : .idle
     }
 
-    /// Agent-Sessions landen in sessions, alles andere (MR-Signale, Widersprüche, Feedback, Tickets) nur in der Inbox.
+    /// Agent sessions go into sessions; everything else (MR signals, contradictions, feedback, tickets) goes only into the inbox.
     func post(_ s: Session) {
         if s.isAgent { sessions[s.id] = s }
         if s.mood == .waiting || s.mood == .done { inbox.record(s) }
@@ -120,8 +120,8 @@ final class Store {
         persist()
     }
 
-    /// Fertige Agent-Session aus der Reihe nehmen, wenn Martin ihre Meldung öffnet oder erledigt.
-    /// Wartende und arbeitende Sessions bleiben, wie sie sind.
+    /// Remove a finished agent session from the queue when Martin opens or completes its notification.
+    /// Waiting and working sessions stay as they are.
     func dismiss(_ id: String) {
         guard sessions[id]?.mood == .done else { return }
         sessions[id] = nil
@@ -156,7 +156,7 @@ final class Store {
         exportLabels()
     }
 
-    /// Sessions und Überschriften überleben einen Neustart (z. B. nach build.sh).
+    /// Sessions and headlines survive a restart (e.g. after build.sh).
     func persist() {
         State.shared.data.sessions = Array(sessions.values)
         State.shared.data.headlines = headlines
@@ -165,8 +165,8 @@ final class Store {
 
     private var exported = ""
 
-    /// Spitznamen und Überschriften der Agent-Sessions für agent-feedback, damit die Session-Auswahl dort
-    /// dieselben Namen zeigt wie die Minis. Schreibt nur bei Änderungen.
+    /// Nicknames and headlines of the agent sessions for agent-feedback, so the session picker there
+    /// shows the same names as the minis. Only writes on changes.
     private func exportLabels() {
         var out: [String: [String: String]] = [:]
         for s in agents { out[s.id] = ["name": name(for: s.id), "headline": s.heading] }
@@ -213,15 +213,15 @@ final class Store {
         sessions[id] = s
         onEvent?(s)
         if s.mood == .working {
-            // Martin hat in der Session weitergemacht: Rückfrage beantwortet bzw. Ergebnis gesehen.
+            // Martin continued in the session: answered the question or saw the result.
             if before == .waiting { inbox.resumed(id) } else if before == .done { inbox.markRead(id) }
             onWorking?(s)
         }
         if s.mood == .waiting { inbox.record(s) }
     }
 
-    /// Stop-Hooks wie das Quality-Gate können ein Stop blockieren, dann arbeitet Claude sofort weiter.
-    /// Erst wenn nach dem Stop 4 s lang nichts mehr von der Session kommt, gilt sie als fertig.
+    /// Stop hooks like the quality gate can block a stop, in which case Claude keeps working immediately.
+    /// Only when nothing more arrives from the session for 4 s after the stop does it count as done.
     private func settle() -> Bool {
         var changed = false
         for (id, s) in sessions {
@@ -245,7 +245,7 @@ final class Store {
             let age = now.timeIntervalSince(s.updated)
             switch s.mood {
             case .working:
-                // Lange Werkzeugläufe (Tests, Builds) melden sich erst danach; das Transkript zeigt Leben.
+                // Long tool runs (tests, builds) only report afterwards; the transcript shows signs of life.
                 if s.lastEvent == "pretool" { return age < 3 * 3600 }
                 if age < 30 * 60 { return true }
                 let touched = (try? FileManager.default.attributesOfItem(atPath: s.transcript))?[.modificationDate] as? Date
@@ -258,8 +258,8 @@ final class Store {
     }
 }
 
-/// Futter und Laune, 0…5. Erledigte Sessions füttern, Streicheln und Merges machen gute Laune,
-/// rote Pipelines schlechte. Tagsüber (8–20 Uhr) wird er langsam hungrig.
+/// Food and mood, 0…5. Finished sessions feed it, petting and merges improve its mood,
+/// red pipelines worsen it. During the day (8am–8pm) it slowly gets hungry.
 final class Vitals {
     private let d = UserDefaults.standard
 
@@ -297,8 +297,8 @@ final class Vitals {
     }
 }
 
-/// Führt die Klickargumente aus wie terminal-notifier: -activate per Bundle-ID, -execute über /bin/sh -c.
-/// "-task" (vorbereiteter Auftrag) behandelt PetView selbst.
+/// Executes the click arguments like terminal-notifier: -activate via bundle ID, -execute via /bin/sh -c.
+/// PetView handles "-task" (prepared task) itself.
 func performClick(_ args: [String]) {
     guard args.count == 2 else { return }
     switch args[0] {

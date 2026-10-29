@@ -1,45 +1,49 @@
 # Tamagotchi
 
-Ein Desktop-Haustier für macOS, das über Claude-Code- und Codex-Sessions wacht. Jede Agent-Session bekommt ein eigenes
-Mini-Haustier mit festem Aussehen. Das große Haustier zeigt neue Meldungen zwei Minuten lang als Sprechblase, danach
-liegen sie in der Inbox.
+A macOS desktop pet that watches over your Claude Code and Codex sessions. Every agent session gets its own mini pet
+with a fixed look. The big pet shows new notifications as a speech bubble for two minutes; after that they wait in
+the inbox until you deal with them.
 
-## Was es kann
+The interface text is in German, since it was built for daily use by a German-speaking developer.
 
-- **Haustiere:** Stimmung je nach Lage (arbeitet, wartet auf dich, fertig, schläft), Requisiten für Rückfragen,
-  laufende Pipelines, Sichtprüfungen und Merges. Ziehen verschiebt, Klick öffnet die dringendste Meldung oder den Chat.
-- **Übersicht** (Doppelklick oder ⌃⌥I), mit allen Agenten in der Seitenleiste:
-  - **Live:** Kennzahlen, eine Karte pro Agent mit Auftrag und aktuellem Werkzeug, MRs mit Bewegung, Tagesverlauf.
-  - **Inbox:** gegliedert in Jetzt dran, Kann warten, Gelesen, Zurückgestellt und Erledigt. Mit Suche, Filter,
-    Wiedervorlage, Anheften, eigener Einstufung, Rückgängig und Tastaturbedienung.
-  - **Aufgaben und MRs:** Ticket, Workspace und Session zu jeder Aufgabe. Bei roter Pipeline das Ende des Job-Logs
-    und „Fix auftragen“, bei offenen Kommentaren „Kommentare an Agent geben“.
-  - **Bericht:** Standup-Notiz und Tagesrückblick zum Kopieren, Zeit pro Ticket, auf Klick nach ClickUp gebucht.
-  - **Agentenansicht:** Überblick, Verlauf der Turns aus dem Transkript, Änderungen (Git-Stand, Diff, bearbeitete
-    Dateien), Rückfragen und Verbrauch (Kontextkurve, Werkzeuge).
-- **Wächter:** meldet Agenten, die wiederholt scheitern, sich im Kreis drehen, lange still sind oder einen sehr
-  vollen Kontext haben.
-- **Menüleiste:** Zähler für wartende Agenten, rote Pipelines und ungelesene Meldungen, dazu ein Kurzmenü.
-- **Ruhe-Modus:** bei Bildschirmfreigabe (Zoom, Teams, Meet, Slack) oder von Hand verschwinden die Haustiere. Danach
-  gibt es eine einzige Zusammenfassung.
-- **Chat und Aufträge:** Fragen per `claude -p`. Arbeitsaufträge startet das Haustier auf Klick als eigene
-  Claude-Code-Session.
+## Features
 
-## Datenquellen
+- **Pets:** mood follows the real state (working, waiting for you, done, asleep), with props for questions, running
+  pipelines, visual reviews and merges. Drag to move; click opens the most urgent notification or the chat.
+- **Overview window** (double-click the pet or press ⌃⌥I), with every agent in a sidebar:
+  - **Live:** key numbers, one card per agent with its current prompt and tool, MRs that need attention, today's
+    timeline.
+  - **Inbox:** sections for up next, can wait, read, snoozed and done. Search, filters, snooze, pinning, manual
+    priority, undo and keyboard control.
+  - **Tasks and MRs:** ticket, workspace and session for every task. For red pipelines, the tail of the failed job log
+    and "fix it"; for open review threads, "hand comments to an agent".
+  - **Report:** standup note and end-of-day summary to copy, time per ticket, booked to ClickUp on click.
+  - **Agent view:** overview, turn history from the transcript, changes (git state, diff, edited files), questions
+    and usage (context chart, tool counts).
+- **Watchdog:** flags agents that keep failing, go in circles, stay silent for a long time or run out of context.
+- **Menu bar:** the app icon with a dot when an agent is waiting (orange) or a pipeline is red (red), plus a short menu.
+- **Quiet mode:** while you share your screen (Zoom, Teams, Meet, Slack) or turn it on by hand, the pets disappear.
+  Afterwards you get a single summary instead of a pile of bubbles.
+- **Chat and tasks:** questions go to `claude -p`; work requests run as their own Claude Code session after you
+  confirm them.
 
-- Hooks schreiben nach `~/.claude/tamagotchi/events.jsonl` (`pet.sh`, `notify.sh` aus den dotfiles).
-- GitLab per `glab`, GitHub per `gh`, ClickUp über den ClickUp-MCP in `claude -p`.
-- Der Zustand liegt in `~/.claude/tamagotchi/state.json`.
+## Data sources
 
-## Bauen
+- Claude Code hooks append to `~/.claude/tamagotchi/events.jsonl` (`pet.sh` and `notify.sh`, kept in a separate
+  dotfiles repo).
+- GitLab via `glab`, GitHub via `gh`, ClickUp through the ClickUp MCP inside `claude -p`.
+- State lives in `~/.claude/tamagotchi/state.json`.
+
+## Build
 
 ```sh
-./build.sh          # baut ~/Applications/Tamagotchi.app und (re)startet den LaunchAgent
-tools/icon.sh       # AppIcon.icns aus dem Pixel-Haustier neu rendern
-tools/icon.sh x.png # oder aus einem eigenen 1024×1024-PNG mit transparenten Ecken
+./build.sh          # builds ~/Applications/Tamagotchi.app and (re)starts the LaunchAgent
+tools/icon.sh       # render AppIcon.icns from the pixel pet
+tools/icon.sh x.png # or from your own 1024×1024 PNG with transparent corners
 ```
 
-Das aktuelle Icon ist aus `icon-source.png` (generiert mit dem Prompt aus `ICON-PROMPT.md`) entstanden:
-`tools/squircle.swift` schneidet das Squircle aus und setzt es ins macOS-Raster, `tools/icon.sh` macht daraus `AppIcon.icns`.
+The current icon comes from `icon-source.png`, generated with the prompt in `ICON-PROMPT.md`.
+`tools/squircle.swift` cuts out the squircle and places it on the macOS icon grid, and `tools/icon.sh` turns it into
+`AppIcon.icns`.
 
-Braucht die Xcode Command Line Tools (swiftc), macOS 14 oder neuer und für den Chat die Freigabe für Bildschirmaufnahme.
+Requires the Xcode Command Line Tools (swiftc), macOS 14 or later, and Screen Recording permission for the chat.

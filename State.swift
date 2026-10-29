@@ -1,10 +1,10 @@
 import Foundation
 
-/// Eine MR (GitLab) oder ein PR (GitHub), an dem Martin beteiligt ist.
+/// An MR (GitLab) or PR (GitHub) that Martin is involved in.
 struct Change: Codable {
     var key: String
     var host: String
-    /// API-Pfad des Projekts: "projects/<id>" (GitLab) bzw. "repos/<owner>/<name>" (GitHub).
+    /// API path of the project: "projects/<id>" (GitLab) or "repos/<owner>/<name>" (GitHub).
     var api: String
     var repo: String
     var number: Int
@@ -13,31 +13,31 @@ struct Change: Codable {
     var branch: String
     var target: String
     var author = ""
-    /// Vorname des Autors für die Sprechblasen.
+    /// Author's first name for the speech bubbles.
     var who = ""
     var mine = false
     var reviewer = false
     var state = "opened"
     var draft = false
-    /// failed, success, running, pending oder leer.
+    /// failed, success, running, pending, or empty.
     var pipeline = ""
     var conflict = false
-    /// approved, changes oder leer.
+    /// approved, changes, or empty.
     var review = ""
-    /// Anzahl offener Review-Punkte von anderen.
+    /// Number of open review items from others.
     var open = 0
-    /// Zeitpunkt der jüngsten Rückmeldung von jemand anderem (Kommentar, Review).
+    /// Time of the most recent response from someone else (comment, review).
     var lastForeign: Date?
     var notes = 0
     var mergeSha = ""
     var mergedAt: Date?
-    /// Ergebnis der Kontrolle nach dem Merge: "", "ok" oder "lost".
+    /// Result of the post-merge check: "", "ok", or "lost".
     var lost = ""
     var lostChecked: Date?
     var seen = Date()
 
     var isOpen: Bool { state == "opened" }
-    /// "Frontend", "Backend" oder der Repo-Name.
+    /// "Frontend", "Backend", or the repo name.
     var side: String { sideName(repo) }
 }
 
@@ -53,7 +53,7 @@ struct Ticket: Codable {
     var id: String
     var name: String
     var status: String
-    /// 2–4 Wörter auf Deutsch, z. B. „Kalender grau bei Zeitplänen“.
+    /// 2–4 words in German, e.g. „Kalender grau bei Zeitplänen“.
     var short = ""
     var checked = Date()
 
@@ -61,36 +61,36 @@ struct Ticket: Codable {
     var finished: Bool { ["staging", "complete", "completed", "closed", "done", "released", "archived"].contains(status.lowercased()) }
 }
 
-/// Was in einem Workspace zuletzt passiert ist, für die Zusammenfassung beim Zurückkehren.
+/// What last happened in a workspace, for the summary on return.
 struct Trail: Codable {
     var heading = ""
     var prompt = ""
     var answer = ""
     var at = Date()
     var session = ""
-    /// Startordner der Session (für `claude --resume`).
+    /// Session's starting folder (for `claude --resume`).
     var root = ""
     var transcript = ""
 }
 
-/// Alles, was einen Neustart überleben soll, in ~/.claude/tamagotchi/state.json.
+/// Everything that should survive a restart, in ~/.claude/tamagotchi/state.json.
 struct Persisted: Codable {
     var changes: [String: Change] = [:]
     var tickets: [String: Ticket] = [:]
-    /// Kurze menschliche Namen für MR-Titel ohne Ticket.
+    /// Short human-readable names for MR titles without a ticket.
     var names: [String: String] = [:]
     var trails: [String: Trail] = [:]
-    /// Wann ein Workspace zuletzt zu sehen oder aktiv war.
+    /// When a workspace was last seen or active.
     var lastSeen: [String: Date] = [:]
-    /// Wann GitLab, GitHub und ClickUp zuletzt erfolgreich abgefragt wurden.
+    /// When GitLab, GitHub, and ClickUp were last queried successfully.
     var checked: [String: Date] = [:]
-    /// Schon gemeldete Widersprüche und verlorene Änderungen.
+    /// Conflicts and lost changes that have already been reported.
     var told: [String: Date] = [:]
     var sessions: [Session] = []
     var headlines: [String: String] = [:]
-    /// Optional, damit ältere state.json-Dateien ohne Inbox weiter lesbar bleiben.
+    /// Optional, so older state.json files without an inbox remain readable.
     var inbox: [Message]?
-    /// Tag (yyyy-MM-dd) → Aufgabe → Sekunden; und was davon schon nach ClickUp gebucht ist (Tag|Aufgabe → Minuten).
+    /// Day (yyyy-MM-dd) → task → seconds; and what of that has already been booked to ClickUp (day|task → minutes).
     var timeLog: [String: [String: Double]]?
     var booked: [String: Int]?
 }
@@ -141,7 +141,7 @@ func ago(_ date: Date) -> String {
     return "vor \(m / 1440) Tagen"
 }
 
-/// Führt ein Kommandozeilenwerkzeug aus und liefert stdout bei Exit 0. Blockiert.
+/// Runs a command-line tool and returns stdout on exit 0. Blocks.
 func cli(_ tool: String, _ args: [String], cwd: URL? = nil) -> Data? {
     let p = Process()
     p.executableURL = URL(fileURLWithPath: tool)
@@ -167,7 +167,7 @@ func parseDate(_ s: Any?) -> Date? {
     return f.date(from: s)
 }
 
-/// ClickUp-ID aus Branch, Titel, Workspace-Name oder Link, kleingeschrieben ohne „CU-“.
+/// ClickUp ID from branch, title, workspace name, or link, lowercase without „CU-“.
 func ticketID(in text: String) -> String? {
     for pattern in ["(?i)\\bCU-([0-9a-z]{8,14})", "app\\.clickup\\.com/t/(?:\\d+/)?([0-9a-z]{8,14})"] {
         if let r = text.range(of: pattern, options: .regularExpression) {
@@ -178,7 +178,7 @@ func ticketID(in text: String) -> String? {
     return nil
 }
 
-/// Deutsche Zahlwörter für die Sätze in den Sprechblasen.
+/// German number words for the sentences in the speech bubbles.
 func numberWord(_ n: Int, feminine: Bool = false) -> String {
     let words = ["null", feminine ? "eine" : "ein", "zwei", "drei", "vier", "fünf", "sechs", "sieben", "acht", "neun", "zehn", "elf", "zwölf"]
     return n < words.count ? words[n] : "\(n)"

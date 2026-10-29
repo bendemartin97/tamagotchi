@@ -1,6 +1,6 @@
 import Foundation
 
-/// Fehlgeschlagener CI-Job mit dem Ende seines Logs.
+/// Failed CI job with the tail of its log.
 struct JobFailure {
     var job: String
     var stage: String
@@ -8,8 +8,8 @@ struct JobFailure {
     var tail: String
 }
 
-/// Holt bei roten Pipelines den fehlgeschlagenen Job samt Log-Ende (GitLab per glab, GitHub per gh) und sammelt
-/// offene Review-Kommentare, damit beides als Auftrag an einen Agenten gehen kann.
+/// For red pipelines, fetches the failed job along with the end of its log (GitLab via glab, GitHub via gh) and collects
+/// open review comments so both can be passed to an agent as a task.
 final class CIDetails {
     var onUpdate: (() -> Void)?
     private var cache: [String: (at: Date, failure: JobFailure?)] = [:]
@@ -17,7 +17,7 @@ final class CIDetails {
     private var me: [String: String] = [:]
     private let glabPath = "/opt/homebrew/bin/glab", ghPath = "/opt/homebrew/bin/gh"
 
-    /// nil, solange noch geladen wird; danach der Job oder ein leerer Platzhalter, wenn keiner gefunden wurde.
+    /// nil while loading; afterwards the job, or an empty placeholder if none was found.
     func failure(_ c: Change) -> JobFailure? {
         if !busy.contains(c.key), Date().timeIntervalSince(cache[c.key]?.at ?? .distantPast) > 300 {
             busy.insert(c.key)
@@ -41,11 +41,11 @@ final class CIDetails {
         let clean = log.replacingOccurrences(of: "\u{1B}\\[[0-9;]*[A-Za-z]", with: "", options: .regularExpression)
             .replacingOccurrences(of: "section_(start|end):[0-9]+:[a-z0-9_]+\r?", with: "", options: .regularExpression)
             .replacingOccurrences(of: "\r", with: "")
-        // gh liefert „Job<TAB>Schritt<TAB>Zeitstempel Text“; nur den Text behalten.
+        // gh returns „Job<TAB>Schritt<TAB>Zeitstempel Text“ (job, step, timestamp text); keep only the text.
         let all = clean.split(separator: "\n", omittingEmptySubsequences: false).map { line in
             String(line).replacingOccurrences(of: "^[^\t]*\t[^\t]*\t\\S+Z ", with: "", options: .regularExpression)
         }
-        // Aufräumschritte nach dem Fehler abschneiden: bis zur letzten Fehlermarke.
+        // Cut off cleanup steps after the failure: up to the last error marker.
         let markers = ["##[error]", "ERROR: Job failed", "FAILURES!", "ERRORS!", "Error:", "error TS", "✖"]
         let end = all.lastIndex { l in markers.contains { l.contains($0) } }.map { min(all.count, $0 + 3) } ?? all.count
         return all[..<end].suffix(lines).joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -76,9 +76,9 @@ final class CIDetails {
                           tail: Self.tail(log.isEmpty ? "Log nicht abrufbar, siehe \(url)" : log))
     }
 
-    // MARK: Review-Kommentare
+    // MARK: Review comments
 
-    /// Offene, nicht aufgelöste Kommentare anderer an einer MR/einem PR, als Liste für einen Auftrag.
+    /// Open, unresolved comments from others on an MR/PR, as a list for a task.
     func openComments(_ c: Change) -> [String] {
         c.host == "github" ? githubComments(c) : gitlabComments(c)
     }
@@ -119,9 +119,9 @@ final class CIDetails {
         return out
     }
 
-    // MARK: Aufträge
+    // MARK: Tasks
 
-    /// Arbeitsordner einer Änderung im Workspace, falls es einen gibt.
+    /// Working folder of a change in the workspace, if there is one.
     static func checkout(_ c: Change, in work: Work?) -> String? {
         guard let ws = work?.workspace else { return nil }
         if let repo = ws.branches.first(where: { $0.value == c.branch })?.key { return ws.dir.appendingPathComponent(repo).path }

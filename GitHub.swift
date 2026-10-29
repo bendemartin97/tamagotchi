@@ -1,8 +1,8 @@
 import Foundation
 
-/// Beobachtet GitHub-PRs in anny-co, an denen Martin beteiligt ist (eine GraphQL-Suche alle 3 Minuten):
-/// Reviews, Änderungswünsche, Checks, Merge-Konflikte, Review-Anfragen. Gemergte PRs der letzten 3 Tage werden
-/// darauf kontrolliert, ob ihre Änderung noch im Zielbranch steckt (der GitLab-Mirror force-pusht gelegentlich darüber).
+/// Watches GitHub PRs in anny-co that Martin is involved in (one GraphQL search every 3 minutes):
+/// reviews, change requests, checks, merge conflicts, review requests. PRs merged in the last 3 days are
+/// checked to see whether their change is still in the target branch (the GitLab mirror occasionally force-pushes over it).
 final class GitHubWatch {
     var onSignals: (([Signal]) -> Void)?
     private var me: String?
@@ -94,7 +94,7 @@ final class GitHubWatch {
             if let s = verify(&c) { signals.append(s) }
             out[c.key] = c
         }
-        // Verschwundene offene PRs: gemergt (dann oben schon erfasst) oder geschlossen.
+        // Open PRs that disappeared: merged (already captured above) or closed.
         for (key, old) in known where out[key] == nil {
             if old.isOpen { continue }
             if old.state == "merged", (old.mergedAt ?? .distantPast) > Date().addingTimeInterval(-7 * 86400) { out[key] = old }
@@ -143,7 +143,7 @@ final class GitHubWatch {
         return c
     }
 
-    /// Reviews und Kommentare von Menschen außer Martin.
+    /// Reviews and comments from humans other than Martin.
     private func activity(_ n: [String: Any], me: String) -> [(who: String, at: Date, kind: String)] {
         var out: [(String, Date, String)] = []
         func human(_ a: Any?) -> Bool {
@@ -164,8 +164,8 @@ final class GitHubWatch {
         return out
     }
 
-    /// Vorname statt Login: GitHub-Name, sonst ein von GitLab bekannter Vorname, mit dem der Login beginnt
-    /// („lucianholt97“ → „Lucian“). Cursor-Agenten heißen Cursor.
+    /// First name instead of login: GitHub name, otherwise a first name known from GitLab that the login starts with
+    /// („lucianholt97“ → „Lucian“). Cursor agents are called Cursor.
     private func name(_ a: Any?) -> String {
         let a = a as? [String: Any]
         let n = a?["name"] as? String ?? ""
@@ -177,7 +177,7 @@ final class GitHubWatch {
         return known.first { $0.count >= 3 && login.lowercased().hasPrefix($0.lowercased()) } ?? capitalized(login)
     }
 
-    /// Steckt die gemergte Änderung noch im Zielbranch? Abstammung über compare, sonst Inhalt der geänderten Dateien.
+    /// Is the merged change still in the target branch? Ancestry via compare, otherwise the contents of the changed files.
     private func verify(_ c: inout Change) -> Signal? {
         guard !c.mergeSha.isEmpty, c.lost != "lost", (c.mergedAt ?? .distantPast) > Date().addingTimeInterval(-3 * 86400),
               Date().timeIntervalSince(c.lostChecked ?? .distantPast) > 30 * 60 else { return nil }

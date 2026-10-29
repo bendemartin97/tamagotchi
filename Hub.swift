@@ -1,9 +1,9 @@
 import AppKit
 import SwiftUI
 
-/// Übersicht per Doppelklick aufs Haustier: Live-Stand aller Agenten und MRs, Inbox (jetzt dran, kann warten, gelesen, zurückgestellt, erledigt),
-/// Aufgaben und MRs/PRs, jeweils mit ihren Aktionen. Pfeiltasten wählen, Enter führt die Hauptaktion aus,
-/// Leertaste klappt auf, E erledigt, ⌘Z nimmt die letzte Aktion zurück.
+/// Overview opened by double-clicking the pet: live status of all agents and MRs, inbox (up next, can wait, read, snoozed, done),
+/// tasks and MRs/PRs, each with their actions. Arrow keys select, Enter runs the primary action,
+/// Space expands, E marks done, ⌘Z undoes the last action.
 final class Hub: ObservableObject {
     enum Tab: String, CaseIterable { case live = "Live", inbox = "Inbox", works = "Aufgaben", changes = "MRs", report = "Bericht" }
     enum Filter: String, CaseIterable { case all = "Alle", questions = "Rückfragen", reviews = "Reviews", errors = "Fehler" }
@@ -12,10 +12,10 @@ final class Hub: ObservableObject {
     let store: Store
     let brain: Brain
     let tasks: TaskRunner
-    /// Klickziel einer Meldung wie aus der Sprechblase (PetView.open): gelesen markieren, Ziel ausführen.
+    /// Click target of a notification, as from the speech bubble (PetView.open): mark as read, run the target.
     var open: (Message) -> Void = { _ in }
     var celebrate: () -> Void = {}
-    /// Requisite eines Agenten wie beim Mini (Brief, Sanduhr, Augen, Party).
+    /// An agent's prop, as with the mini (letter, hourglass, eyes, party).
     var prop: (Session) -> Prop = { _ in .none }
     @Published var tab = Tab.inbox
     @Published var filter = Filter.all
@@ -23,14 +23,14 @@ final class Hub: ObservableObject {
     @Published var expanded: Set<String> = []
     @Published var selected: String?
     @Published var showArchive = false
-    /// In der Seitenleiste gewählter Agent: statt der Reiter erscheint seine Agentenansicht.
+    /// Agent selected in the sidebar: its agent view appears instead of the tabs.
     @Published var agentFilter: String?
     @Published var agentTab = AgentTab.overview
     let logs = SessionLogs()
     let git = GitStates()
     let ci = CIDetails()
     var reports: Reports?
-    /// Auffälligkeiten pro Agent vom Watchdog.
+    /// Anomalies per agent, reported by the watchdog.
     var problems: (String) -> [Problem] = { _ in [] }
     @Published var compose: [String: Compose] = [:]
     @Published var drafts: [String: String] = [:]
@@ -83,7 +83,7 @@ final class Hub: ObservableObject {
 
     func refresh() { tick += 1 }
 
-    /// Solange die Übersicht offen ist, bleiben die Haustiere vom Desktop weg.
+    /// While the overview is open, the pets stay off the desktop.
     var isOpen: Bool { window?.isVisible == true && window?.isMiniaturized == false }
 
     func act(_ run: () -> Void) {
@@ -139,7 +139,7 @@ final class Hub: ObservableObject {
         selected = id
     }
 
-    /// Hauptaktion mit eindeutiger Beschriftung je Art der Meldung.
+    /// Primary action with an unambiguous label for each kind of notification.
     func primary(_ m: Message) -> (String, () -> Void)? {
         if let f = brain.feedbackItem(m) {
             if f.status == .question { return ("Antworten", { [self] in startCompose(m.id, .answer(f)) }) }
@@ -179,13 +179,13 @@ final class Hub: ObservableObject {
         act {}
     }
 
-    /// Feedback-Punkte, die zu einer Meldung gehören und Martin brauchen.
+    /// Feedback items that belong to a notification and need Martin.
     func feedback(for m: Message) -> [FeedbackItem] {
         if let f = brain.feedbackItem(m) { return f.needsMartin ? [f] : [] }
         return m.isAgent ? brain.feedback.items(forSession: m.id).filter(\.needsMartin) : []
     }
 
-    // MARK: Aufgaben und MRs
+    // MARK: Tasks and MRs
 
     var works: [Work] {
         brain.list.filter { w in matches([w.topic, w.ticket?.name ?? "", w.workspace?.slug ?? ""] + w.changes.map(\.title)) }
@@ -202,8 +202,8 @@ final class Hub: ObservableObject {
     }
 }
 
-/// Eine Meldung: Kopfzeile mit Hauptaktion, Erledigt und Menü; aufgeklappt mit Begründung, Feedback-Aktionen,
-/// Antwortfeld, Aufgaben-Links und Verlauf. Wird in der Inbox und beim Agenten verwendet.
+/// A notification: header row with primary action, Done and menu; when expanded, shows the reasoning, feedback actions,
+/// reply field, task links and history. Used in the inbox and in the agent view.
 struct MessageRow: View {
     @ObservedObject var hub: Hub
     let m: Message
@@ -498,7 +498,7 @@ struct HubView: View {
         }
     }
 
-    // MARK: Aufgaben
+    // MARK: Tasks
 
     private var works: some View {
         list(hub.works, id: \.key, empty: "Keine laufenden Aufgaben.") { w in
@@ -588,7 +588,7 @@ struct HubView: View {
         return out
     }
 
-    // MARK: Bausteine
+    // MARK: Building blocks
 
     private func empty(_ text: String) -> some View {
         VStack {
@@ -618,7 +618,7 @@ struct HubView: View {
     }
 }
 
-/// Eine Zeile: Symbol, Titel, Text, Metazeile und rechts die Aktionen.
+/// One row: icon, title, text, meta line and the actions on the right.
 struct Row<Actions: View>: View {
     let icon: String
     let title: String
@@ -648,7 +648,7 @@ struct Row<Actions: View>: View {
     }
 }
 
-/// Bricht Buttons in Zeilen um, wenn sie nicht nebeneinander passen.
+/// Wraps buttons onto multiple lines when they don't fit side by side.
 struct Flow: Layout {
     var spacing: CGFloat = 6
 
@@ -677,12 +677,12 @@ struct Flow: Layout {
 }
 
 extension Change {
-    /// Rote Pipeline oder offene Review-Punkte: dann gibt es Fehlerausgabe bzw. „an Agent geben“.
+    /// Red pipeline or open review items: then there is error output or „an Agent geben“ (hand to agent).
     var needsHelp: Bool { isOpen && (pipeline == "failed" || open > 0 || review == "changes") }
 }
 
-/// Bei roter Pipeline: Fehlerausgabe aufklappen und „Fix auftragen“; bei offenen Review-Punkten: „Kommentare an
-/// Agent geben“. Beides startet einen Claude-Auftrag im Workspace des Branches, ohne Commit und Push.
+/// For a red pipeline: expand the error output and „Fix auftragen“ (assign fix); for open review items: „Kommentare an
+/// Agent geben“ (hand comments to agent). Both start a Claude job in the branch's workspace, without commit and push.
 struct ChangeExtras: View {
     @ObservedObject var hub: Hub
     let change: Change

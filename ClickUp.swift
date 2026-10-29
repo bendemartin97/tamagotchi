@@ -1,8 +1,8 @@
 import Foundation
 
-/// Holt Name und Status der verknüpften ClickUp-Tickets über `claude -p` mit dem ClickUp-MCP (Haiku, ~1 Cent pro
-/// Abfrage, kein eigenes API-Token nötig) und gibt jedem Ticket einen kurzen deutschen Namen. Im selben Lauf bekommen
-/// MR-Titel ohne Ticket einen Namen. Nur bei Aktivität, jedes Ticket höchstens alle 20 Minuten.
+/// Fetches name and status of linked ClickUp tickets via `claude -p` with the ClickUp MCP (Haiku, ~1 cent per
+/// query, no separate API token needed) and gives each ticket a short German name. In the same run, MRs without a
+/// ticket in their title get a name. Only on activity, each ticket at most every 20 minutes.
 final class ClickUpWatch {
     let store: Store
     let works: Works
@@ -78,7 +78,7 @@ final class ClickUpWatch {
         }
         var names: [String: String] = [:]
         for (k, v) in obj["namen"] as? [String: String] ?? [:] where titles.contains(k) { names[k] = clean(v) }
-        // Was ClickUp nicht kennt, nicht bei jeder Runde erneut abfragen.
+        // Don't re-query on every round what ClickUp doesn't know.
         let missing = ids.filter { id in !tickets.contains { $0.id == id } }
         let placeholders = missing.map { id in known[id] ?? Ticket(id: id, name: "", status: "") }.map { t -> Ticket in
             var t = t

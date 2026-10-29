@@ -1,20 +1,20 @@
 import AppKit
 
-/// Kleines Haustier für eine einzelne Agent-Session; läuft dem großen hinterher.
+/// Small pet for a single agent session; trails behind the big one.
 final class MiniPetView: NSView {
     let store: Store
     let sessionID: String
-    /// Kurzname der Aufgabe für das Namensschild.
+    /// Short task name for the name tag.
     var label: ((Session) -> String)?
     var prop: ((Session) -> Prop)?
-    /// Kontextmenü mit Ticket, Workspace, Session, Änderungen und Feedback-Aktionen.
+    /// Context menu with ticket, workspace, session, changes, and feedback actions.
     var contextMenu: ((Session) -> NSMenu?)?
     var tick = 0
     var moodSince = 0
     var lastMood: Mood = .working
     var walking = false
     var facing = 1
-    /// Gezeichnete Beschriftungen; nur sie und das Haustier selbst fangen Klicks.
+    /// Drawn labels; only they and the pet itself catch clicks.
     var tags: [NSRect] = []
 
     let px: CGFloat = 3
@@ -102,7 +102,7 @@ final class MiniPetView: NSView {
     }
 }
 
-/// Hält für jede Agent-Session ein Mini-Fenster und lässt sie im Gänsemarsch hinter dem großen laufen.
+/// Keeps a mini window for each agent session and has them walk in single file behind the big one.
 final class Followers {
     let store: Store
     var label: ((Session) -> String)?
@@ -137,7 +137,7 @@ final class Followers {
             }
             let dx = target.x - panel.frame.minX, dy = target.y - panel.frame.minY
             var next = panel.frame.origin
-            // Bei getrennten Spaces kommen Fenster nicht über die Displaygrenze: dann direkt hinüberspringen.
+            // With separate Spaces, windows can't cross the display boundary: jump straight across instead.
             if hypot(dx, dy) > 600 || screenIndex(of: panel.frame) != screenIndex(of: NSRect(origin: target, size: size)) {
                 next = target
             } else {

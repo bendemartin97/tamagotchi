@@ -1,9 +1,9 @@
-# Icon-Prompt
+# Icon prompts
 
-Für Midjourney, DALL·E, Ideogram, Firefly oder ähnliche Generatoren. Das Ergebnis als 1024×1024-PNG speichern und mit
-`tools/icon.sh icon.png` zu `AppIcon.icns` machen.
+For Midjourney, DALL·E, Ideogram, Firefly and similar generators. Save the result as a 1024×1024 PNG and turn it into
+`AppIcon.icns` with `tools/icon.sh icon.png`.
 
-## Hauptprompt (Englisch, funktioniert in den meisten Generatoren am besten)
+## Main prompt (used for the current icon)
 
 ```
 macOS app icon, rounded square (squircle) with a soft deep-plum to midnight-violet gradient background, a cute chunky
@@ -16,7 +16,7 @@ edges, modern Apple Big Sur icon style, gentle depth and lighting on the squircl
 pixel art, playful but premium, centered composition, no text, no letters, 1024x1024
 ```
 
-## Variante: nur das Haustier, ruhiger
+## Variant: just the pet, calmer
 
 ```
 minimal macOS app icon, squircle with a smooth dark aubergine gradient, one cute pixel-art terracotta creature with
@@ -25,7 +25,7 @@ drop shadow, subtle inner glow on the squircle edge, clean Apple Big Sur style, 
 1024x1024
 ```
 
-## Variante: Wächter-Look
+## Variant: night watch
 
 ```
 macOS app icon, squircle with a night-sky indigo gradient and a few tiny pixel stars, a cute pixel-art terracotta
@@ -34,9 +34,9 @@ feet, cozy and protective mood, warm lantern light on the creatures, crisp pixel
 no text, 1024x1024
 ```
 
-## Hinweise
+## Tips
 
-- Midjourney: `--ar 1:1 --style raw --v 7` anhängen. Bei zu viel 3D-Glanz `--no 3d render, photorealistic` ergänzen.
-- Farben passend zum Code: Fell `#D97757`, dunkler `#B85C40`, Haken `#4DB866`, Wangen `#FA8C99`.
-- Der Platzhalter `icon.png` zeigt die Figur genau so, wie sie im Programm aussieht, und eignet sich als Bildvorlage
-  („image prompt“).
+- Midjourney: append `--ar 1:1 --style raw --v 7`. If it gets too glossy and 3D, add `--no 3d render, photorealistic`.
+- Colors from the code: fur `#D97757`, darker `#B85C40`, checkmark `#4DB866`, cheeks `#FA8C99`.
+- Rendering the pixel pet with `tools/icon.sh` (no argument) gives the exact in-app look, which works well as an
+  image prompt.

@@ -27,7 +27,7 @@ genau `AUFTRAG: ` gefolgt von der Aufgabe, so formuliert, dass eine Claude-Code-
 Screenshot). Danach optional ein kurzer frecher Satz. Martin bestätigt den Auftrag per Klick.
 """
 
-/// Startet `claude -p` und liefert `result` aus der JSON-Ausgabe. Blockiert, also nie auf dem Main-Thread.
+/// Starts `claude -p` and returns `result` from the JSON output. Blocking, so never call it on the main thread.
 func runClaude(_ args: [String], input: String, cwd: URL, env: [String: String]? = nil) -> (ok: Bool, text: String?) {
     let p = Process()
     p.executableURL = claudeURL
@@ -48,8 +48,8 @@ func runClaude(_ args: [String], input: String, cwd: URL, env: [String: String]?
     return (!failed && p.terminationStatus == 0, obj?["result"] as? String)
 }
 
-/// Chat und Erinnerungen über `claude -p` (läuft übers Abo). --setting-sources "" lässt Hooks, Plugins
-/// und Permissions aus den Settings weg, sonst würde jede Antwort selbst als Session im Haustier landen.
+/// Chat and reminders via `claude -p` (runs through the subscription). --setting-sources "" omits hooks, plugins
+/// and permissions from the settings, otherwise every reply would itself end up as a session in the pet.
 final class Buddy {
     private var sessionID: String?
     private var lastUse = Date.distantPast
@@ -80,7 +80,7 @@ final class Buddy {
         }
     }
 
-    /// Proaktive Erinnerung aus Martins Memory (Releases, offene Punkte); nil, wenn nichts ansteht.
+    /// Proactive reminder from Martin's memory (releases, open items); nil if nothing is pending.
     func nudge(situation: String, done: @escaping (String?) -> Void) {
         let memory = memoryDir.resolvingSymlinksInPath().path
         let f = DateFormatter()
@@ -103,7 +103,7 @@ final class Buddy {
     }
 }
 
-/// Braucht die Bildschirmaufnahme-Freigabe für Tamagotchi.app, sonst ist nur das Hintergrundbild drauf.
+/// Needs screen recording permission for Tamagotchi.app, otherwise only the wallpaper is captured.
 func captureScreen() {
     let path = buddyDir.appendingPathComponent("screen.png").path
     for (tool, args) in [("/usr/sbin/screencapture", ["-x", "-m", path]), ("/usr/bin/sips", ["-Z", "1600", path])] {
@@ -117,9 +117,9 @@ func captureScreen() {
     }
 }
 
-/// Aufträge laufen als echte Claude-Code-Session in ~/Development (mit Martins Settings, Hooks und
-/// CLAUDE.md) und tauchen dadurch als Mini-Haustier auf. Das Ergebnis landet in tasks/ und wird per
-/// Klick in VS Code geöffnet.
+/// Tasks run as a real Claude Code session in ~/Development (with Martin's settings, hooks and
+/// CLAUDE.md) and therefore show up as a mini pet. The result lands in tasks/ and is opened in VS Code
+/// on click.
 final class TaskRunner {
     let store: Store
 

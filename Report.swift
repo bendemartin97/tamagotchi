@@ -1,8 +1,8 @@
 import AppKit
 import SwiftUI
 
-/// Zeit pro Aufgabe aus den Hook-Ereignissen: Folgen zwei Ereignisse derselben Aufgabe mit weniger als 15 min
-/// Abstand, zählt die Zwischenzeit. Mehrere Sessions an derselben Aufgabe zählen nicht doppelt.
+/// Time per task from hook events: if two events for the same task are less than 15 min
+/// apart, the gap between them counts. Multiple sessions on the same task are not counted twice.
 final class Timekeeper {
     let works: Works
     private var last: [String: Date] = [:]
@@ -25,14 +25,14 @@ final class Timekeeper {
         last[key] = now
     }
 
-    /// Aufgabe → Sekunden an einem Tag, größte zuerst.
+    /// Task → seconds on a given day, largest first.
     func times(_ date: Date) -> [(key: String, seconds: TimeInterval)] {
         (State.shared.data.timeLog?[Self.day(date)] ?? [:]).map { ($0.key, $0.value) }.sorted { $0.seconds > $1.seconds }
     }
 
     func booked(_ key: String, _ date: Date) -> Int? { State.shared.data.booked?["\(Self.day(date))|\(key)"] }
 
-    /// Bucht einen Zeiteintrag per ClickUp-MCP (Haiku, ~1 Cent). Nur auf Martins Klick.
+    /// Books a time entry via ClickUp MCP (Haiku, ~1 cent). Only on Martin's click.
     func book(_ key: String, minutes: Int, topic: String, date: Date, done: @escaping (Bool) -> Void) {
         let start = Calendar.current.isDateInToday(date) ? Date().addingTimeInterval(-Double(minutes) * 60)
             : Calendar.current.date(bySettingHour: 9, minute: 0, second: 0, of: date)!
@@ -60,7 +60,7 @@ final class Timekeeper {
     }
 }
 
-/// Standup-Notiz (letzter Werktag + heute) und Tagesrückblick aus Inbox-Verlauf, Merges, Tickets und Zeiten.
+/// Standup note (last workday + today) and daily recap from inbox history, merges, tickets and times.
 final class Reports {
     let store: Store
     let brain: Brain
@@ -78,7 +78,7 @@ final class Reports {
         return day
     }
 
-    /// Was an einem Tag passiert ist, als Stichpunkte pro Aufgabe.
+    /// What happened on a given day, as bullet points per task.
     func done(on date: Date) -> [String] {
         let cal = Calendar.current
         var turns: [String: Int] = [:]
@@ -106,7 +106,7 @@ final class Reports {
         }
     }
 
-    /// Was heute ansteht: offene Aufgaben mit ihrem Stand.
+    /// What's on today: open tasks with their status.
     func plan() -> [String] {
         brain.list.filter { w in w.changes.contains(where: \.isOpen) || store.agents.contains { brain.works.key(forProject: $0.project) == w.key } }
             .map { w in
@@ -152,7 +152,7 @@ final class Reports {
     }
 }
 
-/// Reiter „Bericht“: Standup und Tagesrückblick zum Kopieren, darunter die Zeiten pro Ticket zum Buchen.
+/// „Bericht“ (Report) tab: standup and daily recap for copying, with the times per ticket below for booking.
 struct ReportView: View {
     @ObservedObject var hub: Hub
     @SwiftUI.State private var kind = 0
@@ -241,6 +241,6 @@ struct ReportView: View {
         }
     }
 
-    /// Auf 15 Minuten gerundet, mindestens 15.
+    /// Rounded to 15 minutes, minimum 15.
     static func rounded(_ s: TimeInterval) -> Int { max(15, Int((s / 900).rounded()) * 15) }
 }

@@ -1,6 +1,6 @@
 #!/bin/bash
-# Erzeugt AppIcon.icns aus einem 1024er-PNG. Ohne Argument wird das Pixel-Haustier als Platzhalter gerendert.
-# Aufruf: tools/icon.sh [icon.png]
+# Generates AppIcon.icns from a 1024px PNG. Without an argument, the pixel pet is rendered as a placeholder.
+# Usage: tools/icon.sh [icon.png]
 set -euo pipefail
 D="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP="$(mktemp -d)"

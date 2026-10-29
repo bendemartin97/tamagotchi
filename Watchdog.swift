@@ -1,13 +1,13 @@
 import Foundation
 
-/// Etwas Auffälliges an einem Agenten, z. B. „dreht sich im Kreis“.
+/// Something noteworthy about an agent, e.g. "going in circles".
 struct Problem {
     var kind: String
     var text: String
 }
 
-/// Prüft alle 30 s, ob ein Agent feststeckt: wiederholt fehlschlagende Werkzeuge, dieselben Aufrufe im Kreis,
-/// lange Funkstille oder ein sehr voller Kontext. Jede Auffälligkeit kommt einmal pro Turn in die Inbox.
+/// Checks every 30 s whether an agent is stuck: repeatedly failing tools, the same calls in a loop,
+/// long silence, or a very full context. Each anomaly is posted to the inbox once per turn.
 final class Watchdog {
     let store: Store
     let logs: SessionLogs
@@ -15,7 +15,7 @@ final class Watchdog {
     private(set) var problems: [String: [Problem]] = [:]
     private var told: Set<String> = []
 
-    /// Ab hier gilt der Kontext als voll. Die Fenstergröße je Modell steht nicht im Transkript, daher fest.
+    /// From here on the context counts as full. The window size per model isn't in the transcript, so it's hardcoded.
     static let fullContext = 800_000
 
     init(store: Store, logs: SessionLogs, works: Works) {

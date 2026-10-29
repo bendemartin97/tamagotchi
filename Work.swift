@@ -2,7 +2,7 @@ import AppKit
 
 let workspacesDir = homeURL.appendingPathComponent("Development/workspaces")
 
-/// Ein ws-Workspace mit seinen Worktrees (Repo-Name → Branch).
+/// A ws workspace with its worktrees (repo name → branch).
 struct Workspace {
     var slug: String
     var dir: URL
@@ -10,7 +10,7 @@ struct Workspace {
     var file: URL?
 }
 
-/// Eine Aufgabe von Ticket bis Merge: ClickUp-Ticket, Workspace, Branches, MRs/PRs.
+/// A task from ticket to merge: ClickUp ticket, workspace, branches, MRs/PRs.
 struct Work {
     var key: String
     var ticketID: String?
@@ -20,11 +20,11 @@ struct Work {
     var topic = ""
 }
 
-/// Verknüpft Workspaces, MRs/PRs, Tickets und Sessions über die ClickUp-ID (aus Branch, Titel oder
-/// Workspace-Name). Ohne ID gehört eine MR zum Workspace mit ihrem Branch, sonst steht sie allein.
+/// Links workspaces, MRs/PRs, tickets and sessions via the ClickUp ID (from branch, title or
+/// workspace name). Without an ID, an MR belongs to the workspace with its branch; otherwise it stands alone.
 final class Works {
     let store: Store
-    /// Offene Feedback-Punkte (von FeedbackWatch), damit auch Workspaces nur mit Feedback als Aufgabe zählen.
+    /// Open feedback items (from FeedbackWatch), so workspaces with only feedback also count as tasks.
     var feedback: () -> [FeedbackItem] = { [] }
     private(set) var workspaces: [String: Workspace] = [:]
     private var scanned = Date.distantPast
@@ -50,7 +50,7 @@ final class Works {
         workspaces = found
     }
 
-    // MARK: Schlüssel
+    // MARK: Keys
 
     func key(for c: Change) -> String {
         if let id = ticketID(in: c.branch) ?? ticketID(in: c.title) { return id }
@@ -67,9 +67,9 @@ final class Works {
         return ticketID(in: project) ?? "proj:" + project
     }
 
-    // MARK: Aufgaben
+    // MARK: Tasks
 
-    /// Alle Aufgaben mit offenen oder kürzlich gemergten Änderungen, laufenden Sessions oder Feedback.
+    /// All tasks with open or recently merged changes, running sessions or feedback.
     func all() -> [Work] {
         rescan()
         var works: [String: Work] = [:]
@@ -104,9 +104,9 @@ final class Works {
 
     func work(_ key: String) -> Work? { all().first { $0.key == key } }
 
-    // MARK: Namen
+    // MARK: Names
 
-    /// Menschlicher Name einer Aufgabe: Kurzname des Tickets, sonst des MR-Titels, sonst aus dem Workspace.
+    /// Human-readable name of a task: short name of the ticket, otherwise of the MR title, otherwise derived from the workspace.
     func topic(_ w: Work) -> String {
         if let name = ticketName(w.ticketID) { return name }
         if let c = w.changes.first {
@@ -138,9 +138,9 @@ final class Works {
         return t.name.isEmpty ? nil : shorten(t.name)
     }
 
-    // MARK: Aktionen
+    // MARK: Actions
 
-    /// Menüeinträge für eine Aufgabe: Ticket, Workspace, Session, Änderungen.
+    /// Menu entries for a task: ticket, workspace, session, changes.
     func actions(for w: Work) -> [(String, () -> Void)] {
         var out: [(String, () -> Void)] = []
         if let id = w.ticketID {
@@ -165,7 +165,7 @@ final class Works {
     }
 }
 
-/// Branch eines Checkouts aus .git/HEAD (auch bei Worktrees mit gitdir-Verweis).
+/// Branch of a checkout from .git/HEAD (also for worktrees with a gitdir pointer).
 func gitBranch(_ repo: URL) -> String? {
     let git = repo.appendingPathComponent(".git")
     var head = (try? String(contentsOf: git.appendingPathComponent("HEAD"), encoding: .utf8)) ?? ""
@@ -177,7 +177,7 @@ func gitBranch(_ repo: URL) -> String? {
     return ref.hasPrefix("ref: refs/heads/") ? String(ref.dropFirst(16)) : nil
 }
 
-/// „fix(calendar): keep a resource open“ → „Keep a resource open“, ohne Ticket-ID.
+/// „fix(calendar): keep a resource open“ → „Keep a resource open“, without ticket ID.
 func cleanTitle(_ title: String) -> String {
     var t = title.replacingOccurrences(of: "(?i)^(draft:\\s*)+", with: "", options: .regularExpression)
     t = t.replacingOccurrences(of: "(?i)^\\[?CU-[0-9a-z]+\\]?[:\\s-]*", with: "", options: .regularExpression)
@@ -203,7 +203,7 @@ func openURL(_ url: String) {
     if let u = URL(string: url) { NSWorkspace.shared.open(u) }
 }
 
-/// Neuer Warp-Tab im Startordner der Session; `claude --resume …` liegt in der Zwischenablage.
+/// New Warp tab in the session's start folder; `claude --resume …` is on the clipboard.
 func resumeSession(_ trail: Trail) {
     let cmd = "claude --resume \(trail.session)"
     NSPasteboard.general.clearContents()

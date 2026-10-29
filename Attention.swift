@@ -1,26 +1,26 @@
 import AppKit
 
-/// Ein Eintrag in „Was braucht gerade mich?“.
+/// An entry in „Was braucht gerade mich?“ (What needs me right now?).
 struct Attention {
     enum Who: Int { case you, others, auto }
     var who: Who
     var icon: String
-    /// Satzbaustein ohne Punkt: „Fred braucht eine Antwort“.
+    /// Sentence fragment without a period: „Fred braucht eine Antwort“ (Fred needs an answer).
     var phrase: String
-    /// Sammelbegriff für die Zusammenfassung bei others/auto: "pipeline", "agent", "feedback", "review".
+    /// Collective term for the summary under others/auto: "pipeline", "agent", "feedback", "review".
     var group = ""
     var workKey: String?
     var feedback: FeedbackItem?
     var session: String?
     var url: String?
-    /// Vorbereiteter Auftrag (z. B. Ticketstatus korrigieren), startet erst nach Martins Klick.
+    /// Prepared task (e.g. fixing a ticket status); starts only after Martin clicks.
     var task: String?
-    /// Stabile ID für Widersprüche und verlorene Änderungen, damit sie nur einmal gemeldet werden.
+    /// Stable ID for contradictions and lost changes so they are reported only once.
     var id = ""
 }
 
-/// Sammelt, was gerade Martins Aufmerksamkeit braucht, wer sonst dran ist und was von allein läuft, und
-/// erkennt Widersprüche zwischen Ticket und Code. Rechnet alle 3 s neu (Workspaces höchstens alle 30 s).
+/// Collects what currently needs Martin's attention, who else is up, and what runs on its own, and
+/// detects contradictions between ticket and code. Recomputes every 3 s (workspaces at most every 30 s).
 final class Brain {
     let store: Store
     let works: Works
@@ -51,10 +51,10 @@ final class Brain {
 
     func rank(_ a: Attention) -> Triage.Rank { a.who == .you ? triage.rank(a) : .later }
 
-    /// „Du bist dran“ ohne das, was Haiku als Rauschen eingestuft hat.
+    /// „Du bist dran“ (Your turn) without what Haiku classified as noise.
     var forYou: [Attention] { items.filter { $0.who == .you && rank($0) != .hidden } }
 
-    /// Was Haiku zum Einordnen über die Phrase hinaus wissen sollte.
+    /// What Haiku should know beyond the phrase in order to classify it.
     private func context(_ a: Attention) -> String {
         var parts: [String] = []
         if let t = a.workKey.flatMap({ work($0)?.ticket }), !t.status.isEmpty { parts.append("Ticket \(t.status)") }
@@ -65,7 +65,7 @@ final class Brain {
 
     private var exported = ""
 
-    /// Die Liste auch als Datei (attention.json), z. B. für andere Agenten. Schreibt nur bei Änderungen.
+    /// The list also as a file (attention.json), e.g. for other agents. Writes only on changes.
     private func export() {
         let who = ["du", "andere", "automatisch"]
         let out: [String: Any] = ["summary": summary,
@@ -83,14 +83,14 @@ final class Brain {
 
     func work(_ key: String) -> Work? { list.first { $0.key == key } }
 
-    /// Name einer Agent-Session für Sprechblasen und Namensschilder.
+    /// Name of an agent session for speech bubbles and name tags.
     func topic(_ s: Session) -> String {
         s.isAgent ? works.topic(forProject: s.project) : s.label
     }
 
     // MARK: Inbox
 
-    /// Überschrift einer Meldung: bei Agenten Spitzname und Aufgabe, sonst die Aufgabe.
+    /// Heading of a notification: for agents the nickname and task, otherwise the task.
     func title(_ m: Message) -> String {
         if m.id.hasPrefix("warn-") { return "\(store.name(for: String(m.id.dropFirst(5)))) · \(works.topic(forProject: m.project))" }
         return m.isAgent ? "\(store.name(for: m.id)) · \(works.topic(forProject: m.project))" : m.project
@@ -101,7 +101,7 @@ final class Brain {
         return feedback.items.first { "fb-" + $0.md.lastPathComponent == m.id }
     }
 
-    /// Aufgabe einer Meldung: MR-Signale und Tickets über ihren Schlüssel, Agenten und Feedback über das Projekt.
+    /// Task of a notification: MR signals and tickets via their key, agents and feedback via the project.
     func workKey(_ m: Message) -> String {
         if m.id.hasPrefix("work-") { return String(m.id.dropFirst(5)) }
         if m.id.hasPrefix("ticket-") { return String(m.id.dropFirst(7)) }
@@ -110,7 +110,7 @@ final class Brain {
         return works.key(forProject: m.project)
     }
 
-    /// Der Punkt aus „Du bist dran“, der zu einer Meldung gehört; seine Einstufung gilt auch für die Meldung.
+    /// The item from „Du bist dran“ (Your turn) that belongs to a notification; its classification also applies to the notification.
     func attention(for m: Message) -> Attention? {
         let you = items.filter { $0.who == .you }
         if m.isAgent { return you.first { $0.session == m.id } }
@@ -122,7 +122,7 @@ final class Brain {
             .min { order[rank($0)]! < order[rank($1)]! }
     }
 
-    /// Jetzt dran oder kann warten, und warum.
+    /// Needs attention now or can wait, and why.
     func rank(_ m: Message) -> (rank: Triage.Rank, why: String) {
         if m.pinned { return (.now, "Von dir angeheftet.") }
         if let p = m.priority { return (p, "Von dir als „\(p == .now ? "jetzt dran" : "kann warten")“ eingestuft.") }
@@ -135,7 +135,7 @@ final class Brain {
         return m.question ? (.now, "Wartet auf dich.") : (.later, "Nur zur Info, niemand ist blockiert.")
     }
 
-    // MARK: Liste
+    // MARK: List
 
     private func build() -> [Attention] {
         var out: [Attention] = []
@@ -218,7 +218,7 @@ final class Brain {
         return out.sorted { ($0.who.rawValue, rank[$0.group] ?? 0) < ($1.who.rawValue, rank[$1.group] ?? 0) }
     }
 
-    /// Ticket und Code passen nicht zusammen.
+    /// Ticket and code don't match.
     private func contradictions() -> [Attention] {
         var out: [Attention] = []
         let recent = Date().addingTimeInterval(-7 * 86400)
@@ -256,7 +256,7 @@ final class Brain {
         return out
     }
 
-    /// Neue Widersprüche und verlorene Änderungen einmal als Meldung zeigen.
+    /// Show new contradictions and lost changes once as a notification.
     private func announce() {
         var told = State.shared.data.told
         for a in items where !a.id.isEmpty && told[a.id] == nil {
@@ -275,9 +275,9 @@ final class Brain {
         }
     }
 
-    // MARK: Zusammenfassung
+    // MARK: Summary
 
-    /// „Fred braucht eine Antwort. Zwei Pipelines laufen. Der Rest kann warten.“
+    /// „Fred braucht eine Antwort. Zwei Pipelines laufen. Der Rest kann warten.“ (Fred needs an answer. Two pipelines are running. The rest can wait.)
     private func summarize(_ items: [Attention]) -> String {
         let you = items.filter { $0.who == .you && rank($0) != .hidden }
         let others = items.filter { $0.who == .others }

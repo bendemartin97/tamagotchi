@@ -1,8 +1,8 @@
 import Foundation
 
-/// Eine Meldung in der Inbox, eine pro Quelle (Agent-Session, Aufgabe, Feedback-Punkt, Ticket). Neue Ereignisse
-/// derselben Quelle hängen sich an den Verlauf an. Gelesen und erledigt setzt nur Martin; der echte Zustand
-/// eines Agenten bleibt in Store.sessions.
+/// An inbox notification, one per source (agent session, task, feedback item, ticket). New events
+/// from the same source are appended to its history. Only Martin marks items read and done; an agent's actual state
+/// remains in Store.sessions.
 struct Message: Codable {
     struct Event: Codable {
         var at: Date
@@ -16,7 +16,7 @@ struct Message: Codable {
     var project = ""
     var icon = ""
     var text = ""
-    /// Will etwas von Martin (Rückfrage, Freigabe, rote Pipeline, Review-Bitte).
+    /// Wants something from Martin (question, approval, red pipeline, review request).
     var question = false
     var click: [String] = []
     var events: [Event] = []
@@ -26,7 +26,7 @@ struct Message: Codable {
     var archived: Date?
     var snoozed: Date?
     var pinned = false
-    /// Von Martin gesetzte Einstufung, überstimmt die automatische.
+    /// Classification set by Martin; overrides the automatic one.
     var priority: Triage.Rank?
 
     var symbol: String { icon.isEmpty ? (question ? "✋" : "✅") : icon }
@@ -34,12 +34,12 @@ struct Message: Codable {
 }
 
 final class Inbox {
-    /// So lange zeigt das Haustier eine neue Meldung als Sprechblase.
+    /// How long the pet shows a new notification as a speech bubble.
     static let bubbleFor: TimeInterval = 120
 
     var onChange: (() -> Void)?
     private(set) var all: [String: Message] = [:]
-    /// Letzte Sammel- oder Einzelaktion, die sich zurücknehmen lässt.
+    /// Last bulk or single action that can be undone.
     private(set) var undo: (label: String, before: [Message])?
 
     init() {
@@ -47,7 +47,7 @@ final class Inbox {
         Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in self?.wake() }
     }
 
-    /// Ungelesen und jünger als zwei Minuten: erscheint als Sprechblase, Rückfragen zuerst.
+    /// Unread and less than two minutes old: appears as a speech bubble, questions first.
     var fresh: [Message] {
         all.values.filter { $0.active && !$0.read && Date().timeIntervalSince($0.updated) < Self.bubbleFor }
             .sorted { $0.question != $1.question ? $0.question : $0.updated > $1.updated }
@@ -58,7 +58,7 @@ final class Inbox {
     var archived: [Message] { all.values.filter { $0.archived != nil }.sorted { $0.archived! > $1.archived! } }
     var unreadCount: Int { all.values.filter { $0.active && !$0.read }.count }
 
-    /// Neue Rückfrage oder Fertigmeldung einer Quelle.
+    /// New question or completion notice from a source.
     func record(_ s: Session) {
         var m = all[s.id] ?? Message(id: s.id)
         m.agent = s.agent
@@ -80,7 +80,7 @@ final class Inbox {
         changed()
     }
 
-    /// Ein Agent arbeitet wieder (Martin hat im Terminal geantwortet): die Rückfrage bleibt im Verlauf, ist aber erledigt.
+    /// An agent is working again (Martin replied in the terminal): the question stays in the history but is marked done.
     func resumed(_ id: String) {
         guard var m = all[id], m.question, m.archived == nil else { return }
         m.question = false
@@ -134,7 +134,7 @@ final class Inbox {
         changed()
     }
 
-    /// Wiedervorlagen werden fällig und Archiviertes älter als 14 Tage fällt raus.
+    /// Snoozed items become due and archived items older than 14 days are dropped.
     private func wake() {
         var dirty = false
         let cutoff = Date().addingTimeInterval(-14 * 86400)
@@ -158,7 +158,7 @@ final class Inbox {
     }
 }
 
-/// „Morgen 9 Uhr“, am Freitag und Wochenende der nächste Montag.
+/// „Morgen 9 Uhr“ (tomorrow 9 am); on Friday and on weekends, the next Monday.
 func nextMorning() -> Date {
     let cal = Calendar.current
     var day = cal.date(byAdding: .day, value: 1, to: Date())!

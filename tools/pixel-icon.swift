@@ -1,5 +1,5 @@
-// Rendert das Haustier als 1024er-App-Icon (Platzhalter, bis es ein gezeichnetes gibt).
-// Aufruf über tools/icon.sh, das diese Datei zusammen mit Sprite.swift kompiliert.
+// Renders the pet as a 1024px app icon (placeholder until a hand-drawn one exists).
+// Invoked via `tools/icon.sh`, which compiles this file together with `Sprite.swift`.
 import AppKit
 
 enum Mood: String, Codable { case idle, sleeping, working, done, waiting }

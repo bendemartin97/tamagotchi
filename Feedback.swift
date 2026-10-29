@@ -1,7 +1,7 @@
 import AppKit
 
-/// Liest die Feedback-Punkte von agent-feedback (gleiche Ablage und Status-Regeln wie dort) und führt die
-/// Direktaktionen aus. Screenshot und Markierungen bleiben in agent-feedback; hier geht es nur um den nächsten Schritt.
+/// Reads the feedback items from agent-feedback (same storage and status rules as there) and runs the
+/// direct actions. Screenshot and markings stay in agent-feedback; this is only about the next step.
 struct FeedbackItem {
     enum Status { case open, rework, answered, failed, question, implemented, nothingToDo, accepted }
 
@@ -26,7 +26,7 @@ struct FeedbackItem {
         return parts[0].split(separator: "\n").first { $0.hasPrefix(prefix) }.map { String($0.dropFirst(prefix.count)) } ?? ""
     }
 
-    /// Erste Zeile von Martins Notiz.
+    /// First line of Martin's note.
     var headline: String {
         guard let end = text.range(of: "\n---\n") else { return "dein Feedback" }
         let body = text[end.upperBound...]
@@ -72,7 +72,7 @@ struct FeedbackItem {
 
 final class FeedbackWatch {
     private(set) var items: [FeedbackItem] = []
-    /// Meldet Statuswechsel (neue Rückfrage, Änderung zur Sichtprüfung, Abnahme).
+    /// Reports status changes (new follow-up question, change ready for visual review, approval).
     var onChange: ((FeedbackItem, FeedbackItem.Status?) -> Void)?
     private var known: [String: FeedbackItem.Status] = [:]
     private var first = true
@@ -113,7 +113,7 @@ final class FeedbackWatch {
 
     func items(forSession id: String) -> [FeedbackItem] { items.filter { $0.sessionID == id } }
 
-    // MARK: Direktaktionen (gleiches Format wie agent-feedback)
+    // MARK: Direct actions (same format as agent-feedback)
 
     func view(_ item: FeedbackItem) {
         let images = item.images
@@ -132,7 +132,7 @@ final class FeedbackWatch {
         run(item.md, item)
     }
 
-    /// Nachbessern: Wunsch anhängen, Punkt samt Bildern zurück nach inbox/, Agent erneut starten.
+    /// Rework: append the request, move the item with its images back to inbox/, restart the agent.
     func rework(_ item: FeedbackItem, text: String) {
         append("## Nachbesserung \(stamp())\n\(text)\n\n**Status:** nachbessern", to: item.md)
         let inbox = item.dir.appendingPathComponent("inbox")
@@ -145,7 +145,7 @@ final class FeedbackWatch {
         run(inbox.appendingPathComponent(item.md.lastPathComponent), item)
     }
 
-    /// Wie der Runner von agent-feedback: Fork der ursprünglichen Session, sonst frisch im Projekt.
+    /// Like the agent-feedback runner: fork of the original session, otherwise fresh in the project.
     private func run(_ md: URL, _ item: FeedbackItem) {
         var env = ProcessInfo.processInfo.environment
         env["PATH"] = "\(homeURL.path)/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"

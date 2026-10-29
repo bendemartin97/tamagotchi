@@ -1,7 +1,7 @@
 import AppKit
 
-/// Merkt sich pro Workspace, was zuletzt passiert ist, und fasst es beim Zurückkehren (VS-Code-Fenster des
-/// Workspaces wieder vorn oder neue Session darin, nach mindestens 2 Stunden Pause) in zwei, drei Sätzen zusammen.
+/// Remembers per workspace what happened last and summarizes it when you return (the workspace's VS Code window
+/// comes to the front again or a new session starts in it, after a break of at least 2 hours) in two or three sentences.
 final class Returns {
     let store: Store
     let brain: Brain
@@ -14,7 +14,7 @@ final class Returns {
         Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in self?.watchFront() }
     }
 
-    /// Nach jedem fertigen Turn: Überschrift, letzter Prompt und letzte Antwort für den Workspace festhalten.
+    /// After each completed turn: record the heading, last prompt and last reply for the workspace.
     func record(_ s: Session) {
         guard s.isAgent, brain.works.workspaces[s.project] != nil else { return }
         let tail = s.transcript.isEmpty ? nil : transcriptTail(s.transcript)
@@ -30,7 +30,7 @@ final class Returns {
         State.shared.touch()
     }
 
-    /// Aktivität in einem Workspace; nach langer Pause gibt es die Zusammenfassung.
+    /// Activity in a workspace; after a long break, the summary is shown.
     func seen(_ slug: String) {
         guard brain.works.workspaces[slug] != nil else { return }
         let last = State.shared.data.lastSeen[slug]
@@ -84,7 +84,7 @@ final class Returns {
     }
 }
 
-/// Titel des obersten Fensters der aktiven App (braucht die Bildschirmaufnahme-Freigabe).
+/// Title of the active app's frontmost window (requires screen recording permission).
 func frontWindowTitle() -> String? {
     guard let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier,
           let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]]

@@ -1,16 +1,16 @@
 import AppKit
 import SwiftUI
 
-/// Was aus dem Transkript-Ende einer Session für die Live-Ansicht interessant ist.
+/// What is of interest from the end of a session's transcript for the live view.
 struct Peek {
-    /// Martins letzte Eingabe.
+    /// Martin's latest input.
     var prompt = ""
     var model = ""
-    /// Kontextgröße beim letzten Modellaufruf (Eingabe inkl. Cache).
+    /// Context size at the last model call (input incl. cache).
     var context = 0
 }
 
-/// Liest die letzten ~400 KB eines Transkripts, neu nur wenn sich die Datei geändert hat.
+/// Reads the last ~400 KB of a transcript, only re-reading when the file has changed.
 final class Peeker {
     private var cache: [String: (Date, Peek)] = [:]
 
@@ -42,7 +42,7 @@ final class Peeker {
     }
 }
 
-/// „arbeitet seit 12 min“, „wartet seit 3 min“, „fertig vor 5 min · Turn 8 min“ samt Farbe.
+/// "arbeitet seit 12 min" (working for 12 min), "wartet seit 3 min" (waiting for 3 min), "fertig vor 5 min · Turn 8 min" (done 5 min ago · turn 8 min), including color.
 func agentStatus(_ s: Session) -> (text: String, color: Color) {
     switch s.mood {
     case .working: return ("arbeitet seit \(duration(Date().timeIntervalSince(s.busySince ?? s.updated)))", .blue)
@@ -51,7 +51,7 @@ func agentStatus(_ s: Session) -> (text: String, color: Color) {
     }
 }
 
-/// Animiertes Pixel-Haustier eines Agenten in seinem eigenen Aussehen.
+/// Animated pixel pet of an agent, in its own look.
 struct Avatar: View {
     let look: Look
     let mood: Mood
@@ -66,8 +66,8 @@ struct Avatar: View {
     }
 }
 
-/// Seitenleiste mit allen Agenten: Avatar, Aufgabe, Status, aktuelles Werkzeug. Klick öffnet die Agentenansicht,
-/// Doppelklick springt in die Session.
+/// Sidebar with all agents: avatar, task, status, current tool. Click opens the agent view,
+/// double-click jumps into the session.
 struct AgentSidebar: View {
     @ObservedObject var hub: Hub
 
@@ -134,8 +134,8 @@ func duration(_ t: TimeInterval) -> String {
     return "\(s / 3600) h \(s % 3600 / 60) min"
 }
 
-/// Live-Ansicht: alle Agenten mit Auftrag, aktuellem Werkzeug und Dauer, laufende Pipelines und Reviews,
-/// was bei anderen liegt, und der Tagesverlauf.
+/// Live view: all agents with task, current tool and duration, running pipelines and reviews,
+/// what is waiting on others, and the daily history.
 struct LiveView: View {
     @ObservedObject var hub: Hub
 
@@ -156,7 +156,7 @@ struct LiveView: View {
         }
     }
 
-    // MARK: Kennzahlen
+    // MARK: Metrics
 
     private var stats: some View {
         let sessions = store.agents
@@ -186,7 +186,7 @@ struct LiveView: View {
             .background(Capsule().fill(alert ? Color.orange.opacity(0.25) : Color.primary.opacity(0.07)))
     }
 
-    // MARK: Agenten
+    // MARK: Agents
 
     private var agents: some View {
         let order: [Mood: Int] = [.waiting: 0, .working: 1, .done: 2]
@@ -261,7 +261,7 @@ struct LiveView: View {
         }
     }
 
-    // MARK: MRs in Bewegung
+    // MARK: MRs in progress
 
     private var changes: some View {
         let list = State.shared.data.changes.values
@@ -302,7 +302,7 @@ struct LiveView: View {
         return out.joined(separator: " · ")
     }
 
-    // MARK: Bei anderen und automatisch
+    // MARK: With others and automatic
 
     private var elsewhere: some View {
         let list = brain.items.filter { $0.who != .you && $0.group != "agent" }
@@ -314,7 +314,7 @@ struct LiveView: View {
         }
     }
 
-    // MARK: Verlauf
+    // MARK: History
 
     private var activity: some View {
         let today = Calendar.current.startOfDay(for: Date())

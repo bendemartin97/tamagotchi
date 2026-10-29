@@ -1,6 +1,6 @@
 import Foundation
 
-/// Ein Wechsel an einer MR/einem PR, den der Notifier mit anderen derselben Aufgabe zu einer Meldung bündelt.
+/// A change to an MR/PR that the notifier bundles with others from the same task into a single notification.
 struct Signal {
     enum Kind { case failed, fixed, comment, changes, approved, reviewRequested, conflict, merged, lost }
     var kind: Kind
@@ -10,7 +10,7 @@ struct Signal {
     var excerpt = ""
 }
 
-/// Hinzugefügte Zeilen eines Diffs, die aussagekräftig genug für die Inhaltskontrolle sind.
+/// Added lines of a diff that are meaningful enough for content checking.
 func addedLines(_ patch: String) -> [String] {
     patch.split(separator: "\n").compactMap { line -> String? in
         guard line.hasPrefix("+"), !line.hasPrefix("+++") else { return nil }
@@ -19,7 +19,7 @@ func addedLines(_ patch: String) -> [String] {
     }
 }
 
-/// Mindestens 70 % der hinzugefügten Zeilen stehen noch in den Dateien des Zielbranches; gelöschte Dateien fehlen dort.
+/// At least 70% of the added lines are still present in the files of the target branch; deleted files are missing there.
 func contentPresent(_ files: [(path: String, added: [String], deleted: Bool)], fetch: (String) -> String?) -> Bool {
     var total = 0, found = 0
     for f in files where !f.path.isEmpty {
@@ -38,8 +38,8 @@ func contentPresent(_ files: [(path: String, added: [String], deleted: Bool)], f
     return total == 0 || Double(found) / Double(total) >= 0.7
 }
 
-/// Macht aus Signalen einer Abfrage pro Aufgabe eine Meldung in Alltagssprache, ohne Nummern:
-/// „Kalender grau: Fabian hat zwei neue Review-Punkte, die Backend-Pipeline ist rot.“
+/// Turns signals from a per-task query into a plain-language message, without numbers:
+/// „Kalender grau: Fabian hat zwei neue Review-Punkte, die Backend-Pipeline ist rot.“ (Calendar gray: Fabian has two new review items, the backend pipeline is red.)
 final class Notifier {
     let store: Store
     let works: Works
@@ -70,7 +70,7 @@ final class Notifier {
         }
     }
 
-    /// Bei roter Pipeline direkt die Pipelines bzw. Checks statt der MR-Übersicht.
+    /// When the pipeline is red, go straight to the pipelines or checks instead of the MR overview.
     private func link(_ c: Change, failed: Bool) -> String {
         guard failed else { return c.url }
         return c.url + (c.host == "github" ? "/checks" : "/pipelines")

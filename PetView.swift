@@ -1,13 +1,13 @@
 import AppKit
 
-/// Das große Haustier: Sammelstatus, Sprechblase, Chat, Herumlaufen.
+/// The big pet: collection status, speech bubble, chat, walking around.
 final class PetView: NSView, NSTextFieldDelegate {
     let store: Store
     let buddy: Buddy
     let vitals: Vitals
     let tasks: TaskRunner
     var brain: Brain?
-    /// Bis wann gefeiert wird (Abnahme, Merge, Ticket erledigt).
+    /// How long the celebration lasts (approval, merge, ticket done).
     var partyUntil = Date.distantPast
 
     var tick = 0
@@ -29,12 +29,12 @@ final class PetView: NSView, NSTextFieldDelegate {
     var walkPause = 30
     var walking = false
     var facing = 1
-    /// Abstand der Fensterunterkante zur Unterkante des sichtbaren Bildschirmbereichs.
+    /// Distance from the window's bottom edge to the bottom edge of the visible screen area.
     var homeHeight: CGFloat?
-    /// Fenster (Cocoa-Koordinaten), auf dessen Oberkante er gerade sitzt.
+    /// Window (Cocoa coordinates) whose top edge it is currently sitting on.
     var perch: NSRect?
 
-    /// Doppelklick öffnet die Übersicht (Hub); ein einfacher Klick wartet so lange, bis klar ist, dass keiner kommt.
+    /// Double-click opens the overview (hub); a single click waits until it's clear that no second click is coming.
     var onOpenHub: ((Hub.Tab?) -> Void)?
     var quiet: Quiet?
     private var clickTimer: Timer?
@@ -82,7 +82,7 @@ final class PetView: NSView, NSTextFieldDelegate {
         return .none
     }
 
-    /// Überschrift der Sprechblase: bei Agent-Sessions Spitzname und Aufgabe, sonst die Aufgabe.
+    /// Speech bubble heading: for agent sessions nickname and task, otherwise the task.
     func bubbleTitle(_ s: Session) -> String {
         let topic = brain?.topic(s) ?? s.label
         return s.isAgent ? "\(store.name(for: s.id)) · \(topic)" : topic
@@ -99,7 +99,7 @@ final class PetView: NSView, NSTextFieldDelegate {
         needsDisplay = true
     }
 
-    // MARK: Zeichnen
+    // MARK: Drawing
 
     override func draw(_ dirtyRect: NSRect) {
         let mood = self.mood
@@ -138,11 +138,11 @@ final class PetView: NSView, NSTextFieldDelegate {
         replyUntil = Date().addingTimeInterval(seconds ?? max(10, Double(text.count) / 12))
     }
 
-    // MARK: Herumlaufen
+    // MARK: Walking around
 
-    /// Läuft im Leerlauf und beim Arbeiten kreuz und quer über alle Bildschirme, mal auf der Lieblingshöhe
-    /// (`homeHeight`), mal irgendwo, und springt ab und zu auf das aktive Fenster. Bei Meldungen, Chat
-    /// oder Antwort bleibt er stehen.
+    /// Wanders back and forth across all screens, both when idle and when working, sometimes at its favorite height
+    /// (`homeHeight`), sometimes anywhere, and occasionally jumps onto the active window. It stops for notifications, chat
+    /// or replies.
     func stepWalk() {
         walking = false
         guard let win = window, dragOrigin == nil else { return }
@@ -197,8 +197,8 @@ final class PetView: NSView, NSTextFieldDelegate {
 
         let pos = win.frame.origin
         let speed: CGFloat = 2.5
-        // Mit "Monitore verwenden verschiedene Spaces" lässt macOS kein Fenster über die Displaygrenze
-        // ragen: bis an den Rand des aktuellen Bildschirms laufen und dann hinüberspringen.
+        // With "Displays have separate Spaces" macOS doesn't let a window extend across the display boundary:
+        // walk to the edge of the current screen and then jump across.
         var goal = target
         if here != screen {
             goal.y = min(max(target.y, here.minY), here.maxY - size.height)
@@ -234,7 +234,7 @@ final class PetView: NSView, NSTextFieldDelegate {
             ?? floors.min { hypot($0.midX - pt.x, $0.midY - pt.y) < hypot($1.midX - pt.x, $1.midY - pt.y) }!
     }
 
-    /// Oberstes normales Fenster der aktiven App, in Cocoa-Koordinaten.
+    /// Topmost normal window of the active app, in Cocoa coordinates.
     private func frontWindow() -> NSRect? {
         guard let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier,
               let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]],
@@ -247,7 +247,7 @@ final class PetView: NSView, NSTextFieldDelegate {
         return nil
     }
 
-    // MARK: Maus
+    // MARK: Mouse
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         if let hit = super.hitTest(point), hit !== self { return hit }
@@ -391,7 +391,7 @@ final class PetView: NSView, NSTextFieldDelegate {
 
     @objc func openHub() { onOpenHub?(nil) }
 
-    /// Klickziel einer Meldung ausführen und sie als gelesen markieren; erledigt wird sie erst in der Inbox.
+    /// Run a notification's click target and mark it as read; it only gets resolved in the inbox.
     func open(_ m: Message) {
         store.inbox.markRead(m.id)
         store.dismiss(m.id)
@@ -404,13 +404,13 @@ final class PetView: NSView, NSTextFieldDelegate {
         showReply(brain?.summary ?? "Gerade braucht dich nichts.", title: "Was braucht dich gerade?", seconds: 15)
     }
 
-    /// Vorbereiteten Auftrag zeigen; ein Klick auf die Blase startet ihn.
+    /// Show the prepared task; clicking the bubble starts it.
     func offerTask(_ task: String, text: String) {
         pendingTask = task
         showReply(text.replacingOccurrences(of: " Klick = Ticket-Korrektur vorbereiten.", with: ""), title: "🛠 Korrigieren lassen? Klick = los", seconds: 45)
     }
 
-    /// Hauptaktion eines Eintrags aus „Was braucht gerade mich?“.
+    /// Primary action of an entry from „Was braucht gerade mich?“ (What needs me right now?).
     func act(_ a: Attention) {
         if let f = a.feedback {
             switch f.status {
@@ -428,7 +428,7 @@ final class PetView: NSView, NSTextFieldDelegate {
         }
     }
 
-    /// Ticket, Workspace, Session und Änderungen einer Aufgabe.
+    /// Ticket, workspace, session and changes of a task.
     func workMenu(_ w: Work) -> NSMenu {
         let m = NSMenu()
         if let t = w.ticket, !t.name.isEmpty {
@@ -440,7 +440,7 @@ final class PetView: NSView, NSTextFieldDelegate {
         return m
     }
 
-    /// Kontextmenü eines Minis: Aufgabe plus Feedback-Aktionen für seine Session.
+    /// Context menu of a mini: task plus feedback actions for its session.
     func sessionMenu(_ s: Session) -> NSMenu? {
         guard let brain else { return nil }
         let m = brain.work(forSession: s).map(workMenu) ?? NSMenu()
@@ -590,7 +590,7 @@ final class PetView: NSView, NSTextFieldDelegate {
     }
 }
 
-/// Menüeintrag mit Closure statt Selector.
+/// Menu item with a closure instead of a selector.
 final class ActionItem: NSMenuItem {
     private let handler: () -> Void
 

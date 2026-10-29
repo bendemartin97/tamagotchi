@@ -1,6 +1,6 @@
 #!/bin/bash
-# Baut ~/Applications/Tamagotchi.app und registriert den LaunchAgent (Start beim Login).
-# Aufruf: ./build.sh            (bauen + (neu)starten)
+# Builds ~/Applications/Tamagotchi.app and registers the LaunchAgent (starts at login).
+# Usage: ./build.sh            (build + (re)start)
 set -euo pipefail
 D="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP="$HOME/Applications/Tamagotchi.app"
@@ -22,8 +22,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>LSUIElement</key><true/>
 </dict></plist>
 PLIST
-# Mit dem Apple-Development-Zertifikat signieren: Ad-hoc-Signaturen ändern sich bei jedem Build, und macOS
-# vergisst dann die Freigaben (Bildschirmaufnahme, Automation). Ohne Zertifikat bleibt es bei ad-hoc.
+# Sign with the Apple Development certificate: ad-hoc signatures change with every build, and macOS
+# then forgets the granted permissions (screen recording, automation). Without a certificate it falls back to ad-hoc.
 SIGN_ID=$(security find-identity -v -p codesigning | awk -F'"' '/Apple Development/ { print $2; exit }')
 codesign --force --sign "${SIGN_ID:--}" "$APP" >/dev/null 2>&1 || true
 

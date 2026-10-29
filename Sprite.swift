@@ -13,6 +13,34 @@ enum Palette {
     static let confetti = [heart, alert, check, NSColor(srgbRed: 0.35, green: 0.6, blue: 0.95, alpha: 1)]
 }
 
+/// Aussehen eines Haustiers: Fellfarbe und ein Accessoire. Das große bleibt orange ohne Accessoire, jeder Agent
+/// bekommt aus seinem Spitznamen ein festes eigenes, damit Mini, Sprechblase und Übersicht zusammenpassen.
+struct Look {
+    enum Accessory: CaseIterable { case none, cap, beanie, glasses, bow, antenna, headphones, scarf }
+
+    var body = Palette.body
+    var dark = Palette.bodyDark
+    var light = Palette.bodyLight
+    var accessory = Accessory.none
+    var trim = Palette.confetti[3]
+
+    static let standard = Look()
+    private static let hues: [CGFloat] = [0.0, 0.14, 0.3, 0.46, 0.58, 0.68, 0.78, 0.88, 0.96, 0.11]
+
+    /// Über den Index in petNames: keine zwei Spitznamen teilen sich Farbe und Accessoire.
+    static func agent(_ name: String) -> Look {
+        let hash = Int(name.utf8.reduce(UInt32(5381)) { ($0 &<< 5) &+ $0 &+ UInt32($1) } % 1000)
+        let i: Int = petNames.firstIndex(of: name) ?? hash
+        let hue = hues[i % hues.count]
+        let trimHue = (hue + 0.5).truncatingRemainder(dividingBy: 1)
+        return Look(body: NSColor(hue: hue, saturation: 0.5, brightness: 0.86, alpha: 1),
+                    dark: NSColor(hue: hue, saturation: 0.62, brightness: 0.66, alpha: 1),
+                    light: NSColor(hue: hue, saturation: 0.32, brightness: 0.95, alpha: 1),
+                    accessory: Accessory.allCases[(i + i / hues.count) % Accessory.allCases.count],
+                    trim: NSColor(hue: trimHue, saturation: 0.7, brightness: 0.8, alpha: 1))
+    }
+}
+
 /// Was das Haustier gerade in der Hand hat oder tut, abgeleitet aus dem echten Arbeitsstand.
 enum Prop {
     case none
@@ -42,6 +70,7 @@ struct PetPose {
     var hungry = false
     var grumpy = false
     var prop = Prop.none
+    var look = Look.standard
 
     var lift: Int {
         if hop > 0 { return [1, 3, 5, 6, 5, 3][hop % 6] }
@@ -58,7 +87,7 @@ struct PetPose {
 
 /// Zeichnet das Haustier in einer geflippten View; `origin` ist die linke obere Ecke im Ruhezustand.
 func drawPet(_ pose: PetPose, at origin: NSPoint, px: CGFloat) {
-    let mood = pose.mood, t = pose.t, tick = pose.tick
+    let mood = pose.mood, t = pose.t, tick = pose.tick, look = pose.look
     let o = NSPoint(x: origin.x, y: origin.y - CGFloat(pose.lift) * px)
     func p(_ x: Int, _ y: Int, _ c: NSColor) {
         c.setFill()
@@ -72,11 +101,11 @@ func drawPet(_ pose: PetPose, at origin: NSPoint, px: CGFloat) {
     let step = trotting ? (tick / 2) % 2 : 0
     for (i, x) in [3, 5, 8, 10].enumerated() {
         let short = trotting && (i % 2 == step)
-        rect(x...x, 8...(short ? 8 : 9), Palette.bodyDark)
+        rect(x...x, 8...(short ? 8 : 9), look.dark)
     }
-    rect(2...11, 0...7, Palette.body)
-    rect(3...10, 0...0, Palette.bodyLight)
-    rect(2...11, 7...7, Palette.bodyDark)
+    rect(2...11, 0...7, look.body)
+    rect(3...10, 0...0, look.light)
+    rect(2...11, 7...7, look.dark)
 
     let armsUp: Bool
     switch mood {
@@ -87,9 +116,9 @@ func drawPet(_ pose: PetPose, at origin: NSPoint, px: CGFloat) {
     default: armsUp = pose.petted > 0 || pose.hop > 0
     }
     if armsUp {
-        rect(0...1, 1...2, Palette.body); rect(12...13, 1...2, Palette.body)
+        rect(0...1, 1...2, look.body); rect(12...13, 1...2, look.body)
     } else {
-        rect(0...1, 4...5, Palette.body); rect(12...13, 4...5, Palette.body)
+        rect(0...1, 4...5, look.body); rect(12...13, 4...5, look.body)
     }
 
     let ink = Palette.ink
@@ -114,6 +143,8 @@ func drawPet(_ pose: PetPose, at origin: NSPoint, px: CGFloat) {
         if pose.grumpy || pose.hungry { p(5, 6, ink); rect(6...7, 5...5, ink); p(8, 6, ink) }
     }
 
+    drawAccessory(look, party: pose.prop == .party, p: p, rect: rect)
+
     switch mood {
     case .waiting:
         if (t / 4) % 2 == 0 { rect(13...13, -5 ... -3, Palette.alert); p(13, -1, Palette.alert) }
@@ -136,6 +167,32 @@ func drawPet(_ pose: PetPose, at origin: NSPoint, px: CGFloat) {
     drawProp(pose, p: p, rect: rect, o: o, px: px)
     if pose.petted > 0 {
         drawHeart(at: NSPoint(x: o.x + 1 * px, y: o.y - CGFloat(3 + (20 - pose.petted) / 4) * px), px: px)
+    }
+}
+
+private func drawAccessory(_ look: Look, party: Bool, p: (Int, Int, NSColor) -> Void,
+                           rect: (ClosedRange<Int>, ClosedRange<Int>, NSColor) -> Void) {
+    let c = look.trim, ink = Palette.ink
+    switch look.accessory {
+    case .none: break
+    case .cap where !party: rect(3...10, -1 ... -1, c); rect(2...12, 0...0, c)
+    case .beanie where !party: rect(3...10, -1...0, c); rect(2...11, 0...0, c.blended(withFraction: 0.3, of: .white) ?? c); p(6, -2, .white)
+    case .glasses: rect(2...5, 1...1, ink); rect(8...11, 1...1, ink); rect(6...7, 2...2, ink); p(2, 2, ink); p(11, 2, ink)
+    case .bow: p(9, -1, c); p(9, 0, c); p(10, 0, ink); p(11, -1, c); p(11, 0, c)
+    case .antenna: p(3, -1, ink); p(3, -2, ink); p(3, -3, c)
+    case .headphones: rect(3...10, -1 ... -1, ink); rect(1...1, 1...3, c); rect(12...12, 1...3, c)
+    case .scarf: rect(2...11, 6...6, c); p(10, 7, c); p(10, 8, c)
+    default: break
+    }
+}
+
+/// Haustier als Bild für die Übersicht.
+func petImage(_ pose: PetPose, px: CGFloat) -> NSImage {
+    let pad: CGFloat = 6 * px
+    let size = NSSize(width: CGFloat(spriteCols + 4) * px, height: CGFloat(spriteRows) * px + pad + px)
+    return NSImage(size: size, flipped: true) { _ in
+        drawPet(pose, at: NSPoint(x: 1 * px, y: pad), px: px)
+        return true
     }
 }
 

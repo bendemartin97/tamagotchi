@@ -36,7 +36,8 @@ final class MiniPetView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         guard let s = store.sessions[sessionID] else { return }
         if s.mood != lastMood { lastMood = s.mood; moodSince = tick }
-        let pose = PetPose(mood: s.mood, t: tick - moodSince, tick: tick, walking: walking, facing: facing, prop: prop?(s) ?? .none)
+        let pose = PetPose(mood: s.mood, t: tick - moodSince, tick: tick, walking: walking, facing: facing, prop: prop?(s) ?? .none,
+                            look: Look.agent(store.name(for: s.id)))
         drawShadow(centerX: bounds.midX, y: bounds.height - 7, width: CGFloat(spriteCols) * px, lift: pose.lift)
         drawPet(pose, at: petOrigin, px: px)
 
@@ -91,7 +92,8 @@ final class MiniPetView: NSView {
     override func mouseUp(with event: NSEvent) {
         guard let s = store.sessions[sessionID] else { return }
         performClick(s.click)
-        if s.mood != .working { store.ack(s.id) }
+        store.inbox.markRead(s.id)
+        store.dismiss(s.id)
     }
 
     override func rightMouseDown(with event: NSEvent) {
@@ -110,6 +112,10 @@ final class Followers {
     let size = NSSize(width: 120, height: 84)
 
     init(store: Store) { self.store = store }
+
+    func hide() {
+        for (panel, _) in panels.values where panel.isVisible { panel.orderOut(nil) }
+    }
 
     func update(leader: NSWindow, leaderView: PetView) {
         let agents = store.agents
@@ -141,6 +147,7 @@ final class Followers {
             view.walking = hypot(dx, dy) > 1.5
             if abs(dx) > 1.5 { view.facing = dx > 0 ? 1 : -1 }
             if next != panel.frame.origin { panel.setFrameOrigin(next) }
+            if !panel.isVisible { panel.orderFrontRegardless() }
             view.tick += 1
             view.needsDisplay = true
         }

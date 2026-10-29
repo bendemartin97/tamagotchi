@@ -64,14 +64,16 @@ final class Notifier {
             if list.count == 1, list[0].kind == .comment, !list[0].excerpt.isEmpty {
                 body += " „\(shorten(list[0].excerpt, 110))“"
             }
-            // Ungelesene ältere Meldung zur selben Aufgabe nicht verdrängen, sondern davor stellen.
-            if let old = store.sessions["work-\(key)"], old.mood == .waiting || old.mood == .done {
-                body = shorten(old.text + " " + body, 320)
-            }
             store.post(Session(id: "work-\(key)", mood: urgent ? .waiting : .done, project: topic, agent: "Änderungen", text: body,
-                               icon: icon, click: ["-execute", "open \(shellQuote(target.url))"], isAgent: false))
+                               icon: icon, click: ["-execute", "open \(shellQuote(link(target, failed: icon == "🔴")))"], isAgent: false))
             list.forEach { onKind?($0.kind) }
         }
+    }
+
+    /// Bei roter Pipeline direkt die Pipelines bzw. Checks statt der MR-Übersicht.
+    private func link(_ c: Change, failed: Bool) -> String {
+        guard failed else { return c.url }
+        return c.url + (c.host == "github" ? "/checks" : "/pipelines")
     }
 
     private func icon(_ list: [Signal]) -> String {

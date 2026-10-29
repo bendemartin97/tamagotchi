@@ -88,6 +88,11 @@ struct Persisted: Codable {
     var told: [String: Date] = [:]
     var sessions: [Session] = []
     var headlines: [String: String] = [:]
+    /// Optional, damit ältere state.json-Dateien ohne Inbox weiter lesbar bleiben.
+    var inbox: [Message]?
+    /// Tag (yyyy-MM-dd) → Aufgabe → Sekunden; und was davon schon nach ClickUp gebucht ist (Tag|Aufgabe → Minuten).
+    var timeLog: [String: [String: Double]]?
+    var booked: [String: Int]?
 }
 
 final class State {

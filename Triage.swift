@@ -35,6 +35,9 @@ final class Triage {
         return a.group.isEmpty ? .now : .later
     }
 
+    /// Hat Haiku diesen Punkt schon eingestuft (sonst gilt die Grundregel)?
+    func ranked(_ a: Attention) -> Bool { saved.ranks[Self.key(a)] != nil }
+
     /// Haikus Satz, solange die Liste noch dieselbe ist, zu der er geschrieben wurde.
     func sentence(for you: [Attention]) -> String? {
         saved.input == signature(you) && !saved.sentence.isEmpty ? saved.sentence : nil

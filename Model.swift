@@ -32,6 +32,13 @@ struct Session: Codable {
     var isAgent = true
     /// Zeitpunkt eines Stop-Events, das noch nicht als „fertig“ gilt (siehe Store.settle).
     var stopAt: Date?
+    /// Beginn des laufenden bzw. letzten Turns. Die Live-Felder sind optional, damit ältere state.json lesbar bleibt.
+    var busySince: Date?
+    /// Werkzeugaufrufe im laufenden Turn und die letzten davon.
+    var tools: Int?
+    var recent: [String]?
+    /// Dauer des letzten fertigen Turns in Sekunden.
+    var lastTurn: TimeInterval?
 
     var label: String { project.isEmpty ? agent : project }
     var heading: String { headline.isEmpty ? title : headline }
@@ -54,11 +61,21 @@ final class Store {
     /// Überschriften überleben das Quittieren einer fertigen Session.
     var headlines: [String: String] = [:]
     var onWorking: ((Session) -> Void)?
+    /// Jedes Hook-Ereignis einer Session (für die Zeiterfassung).
+    var onEvent: ((Session) -> Void)?
+    let inbox = Inbox()
     private var names: [String: String] = [:]
     private var offset: UInt64 = 0
 
     init() {
-        for s in State.shared.data.sessions { sessions[s.id] = s }
+        let firstInbox = State.shared.data.inbox == nil
+        for s in State.shared.data.sessions {
+            if firstInbox && (s.mood == .waiting || s.mood == .done) {
+                inbox.record(s)
+                inbox.markRead(s.id)
+            }
+            if s.isAgent { sessions[s.id] = s }
+        }
         headlines = State.shared.data.headlines
         let fm = FileManager.default
         try? fm.createDirectory(at: buddyDir, withIntermediateDirectories: true)
@@ -68,15 +85,6 @@ final class Store {
         if !fm.fileExists(atPath: eventsURL.path) { fm.createFile(atPath: eventsURL.path, contents: nil) }
         offset = ((try? fm.attributesOfItem(atPath: eventsURL.path))?[.size] as? UInt64) ?? 0
         Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { [weak self] _ in self?.poll() }
-    }
-
-    var pending: [Session] {
-        sessions.values
-            .filter { $0.mood == .waiting || $0.mood == .done }
-            .sorted { a, b in
-                if a.mood != b.mood { return a.mood == .waiting }
-                return a.updated > b.updated
-            }
     }
 
     /// Fester Spitzname pro Session, aus der ID abgeleitet und unter den laufenden Sessions eindeutig.
@@ -94,37 +102,29 @@ final class Store {
     }
 
     var mood: Mood {
-        let all = sessions.values
-        if all.contains(where: { $0.mood == .waiting }) { return .waiting }
-        if all.contains(where: { $0.mood == .done }) { return .done }
-        if all.contains(where: { $0.mood == .working }) { return .working }
+        let fresh = inbox.fresh
+        if fresh.contains(where: \.question) { return .waiting }
+        if !fresh.isEmpty { return .done }
+        if sessions.values.contains(where: { $0.mood == .working }) { return .working }
         let hour = Calendar.current.component(.hour, from: Date())
         if hour >= 22 || hour < 6 { return .sleeping }
         return Date().timeIntervalSince(lastActivity) > 20 * 60 ? .sleeping : .idle
     }
 
+    /// Agent-Sessions landen in sessions, alles andere (MR-Signale, Widersprüche, Feedback, Tickets) nur in der Inbox.
     func post(_ s: Session) {
-        sessions[s.id] = s
+        if s.isAgent { sessions[s.id] = s }
+        if s.mood == .waiting || s.mood == .done { inbox.record(s) }
         lastActivity = Date()
         onChange?()
         persist()
     }
 
-    func ack(_ id: String) {
-        guard var s = sessions[id] else { return }
-        if s.mood == .waiting && s.isAgent {
-            s.mood = .working
-            s.updated = Date()
-            sessions[id] = s
-        } else {
-            sessions[id] = nil
-        }
-        onChange?()
-        persist()
-    }
-
-    func ackAll() {
-        for (id, s) in sessions where s.mood == .done || s.mood == .waiting { sessions[id] = nil }
+    /// Fertige Agent-Session aus der Reihe nehmen, wenn Martin ihre Meldung öffnet oder erledigt.
+    /// Wartende und arbeitende Sessions bleiben, wie sie sind.
+    func dismiss(_ id: String) {
+        guard sessions[id]?.mood == .done else { return }
+        sessions[id] = nil
         onChange?()
         persist()
     }
@@ -194,6 +194,7 @@ final class Store {
         s.updated = Date()
         s.stopAt = nil
         s.lastEvent = e["event"] as? String ?? ""
+        let before = s.mood
         switch e["event"] as? String {
         case "working", "pretool": s.mood = .working
         case "stop": s.stopAt = Date()
@@ -201,8 +202,22 @@ final class Store {
         case "end": sessions[id] = nil; return
         default: return
         }
+        if s.mood == .working && (before == .done || s.busySince == nil) {
+            s.busySince = Date()
+            s.tools = 0
+        }
+        if s.lastEvent == "pretool", !s.detail.isEmpty {
+            s.tools = (s.tools ?? 0) + 1
+            s.recent = Array(((s.recent ?? []) + [s.detail]).suffix(6))
+        }
         sessions[id] = s
-        if s.mood == .working { onWorking?(s) }
+        onEvent?(s)
+        if s.mood == .working {
+            // Martin hat in der Session weitergemacht: Rückfrage beantwortet bzw. Ergebnis gesehen.
+            if before == .waiting { inbox.resumed(id) } else if before == .done { inbox.markRead(id) }
+            onWorking?(s)
+        }
+        if s.mood == .waiting { inbox.record(s) }
     }
 
     /// Stop-Hooks wie das Quality-Gate können ein Stop blockieren, dann arbeitet Claude sofort weiter.
@@ -214,7 +229,9 @@ final class Store {
             var done = s
             done.stopAt = nil
             done.mood = .done
+            done.lastTurn = done.busySince.map { at.timeIntervalSince($0) }
             sessions[id] = done
+            inbox.record(done)
             onDone?(done)
             changed = true
         }

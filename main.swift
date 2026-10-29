@@ -2,8 +2,11 @@
 // Liest ~/.claude/tamagotchi/events.jsonl (geschrieben von ~/.claude/hooks/pet.sh und notify.sh),
 // beobachtet Martins MRs/PRs auf GitLab und GitHub, verknüpft sie mit ClickUp-Tickets und Workspaces, sagt,
 // was gerade Martins Aufmerksamkeit braucht, chattet über `claude -p` und gibt Aufträge an Claude Code weiter.
-// Klick: öffnet die dringendste Meldung, sonst den Chat (auch ⌃⌥Leertaste). Ziehen: verschieben.
-// Rechtsklick: Menü. Jede Agent-Session bekommt ein Mini-Haustier, das hinterherläuft.
+// Klick: öffnet die dringendste Meldung, sonst den Chat (auch ⌃⌥Leertaste). Doppelklick oder ⌃⌥I: Übersicht
+// (Live, Inbox, Aufgaben, MRs, Bericht, Agentenansicht). Ziehen: verschieben. Rechtsklick: Menü. Menüleiste: Zähler
+// und Kurzmenü. Meldungen stehen 2 min in der Blase und bleiben in der Inbox, bis Martin sie erledigt. Jede
+// Agent-Session bekommt ein Mini-Haustier, das hinterherläuft. Bei offener Übersicht und im Ruhe-Modus
+// (Bildschirmfreigabe oder von Hand) sind die Haustiere ausgeblendet.
 
 import AppKit
 import Carbon
@@ -12,19 +15,27 @@ final class KeyPanel: NSPanel {
     override var canBecomeKey: Bool { true }
 }
 
-/// Globales Tastenkürzel ⌃⌥Leertaste über Carbon (braucht keine Bedienungshilfen-Freigabe).
+/// Globale Tastenkürzel mit ⌃⌥ über Carbon (braucht keine Bedienungshilfen-Freigabe).
 enum Hotkey {
-    static var handler: (() -> Void)?
-    private static var ref: EventHotKeyRef?
+    private static var handlers: [UInt32: () -> Void] = [:]
+    private static var refs: [EventHotKeyRef?] = []
 
-    static func register() {
-        var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-        InstallEventHandler(GetApplicationEventTarget(), { _, _, _ in
-            Hotkey.handler?()
-            return noErr
-        }, 1, &spec, nil, nil)
-        RegisterEventHotKey(UInt32(kVK_Space), UInt32(controlKey | optionKey),
-                            EventHotKeyID(signature: OSType(0x5441_4D41), id: 1), GetApplicationEventTarget(), 0, &ref)
+    static func register(_ id: UInt32, key: Int, _ handler: @escaping () -> Void) {
+        if handlers.isEmpty {
+            var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+            InstallEventHandler(GetApplicationEventTarget(), { _, event, _ in
+                var hk = EventHotKeyID()
+                GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil,
+                                  MemoryLayout<EventHotKeyID>.size, nil, &hk)
+                Hotkey.handlers[hk.id]?()
+                return noErr
+            }, 1, &spec, nil, nil)
+        }
+        handlers[id] = handler
+        var ref: EventHotKeyRef?
+        RegisterEventHotKey(UInt32(key), UInt32(controlKey | optionKey),
+                            EventHotKeyID(signature: OSType(0x5441_4D41), id: id), GetApplicationEventTarget(), 0, &ref)
+        refs.append(ref)
     }
 }
 
@@ -42,6 +53,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     lazy var brain = Brain(store: store, works: works, feedback: feedback)
     lazy var notifier = Notifier(store: store, works: works)
     lazy var returns = Returns(store: store, brain: brain)
+    lazy var hub = Hub(store: store, brain: brain, tasks: tasks)
+    lazy var watchdog = Watchdog(store: store, logs: hub.logs, works: works)
+    lazy var timekeeper = Timekeeper(works: works)
+    let quiet = Quiet()
+    var statusBar: StatusBar!
     var gitlab: GitLabWatch!
     var github: GitHubWatch!
     var clickup: ClickUpWatch!
@@ -75,6 +91,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         view.brain = brain
         brain.refresh()
+        hub.open = { [weak self] in self?.view.open($0) }
+        hub.celebrate = { [weak self] in self?.view.celebrate() }
+        hub.prop = { [weak self] in self?.prop(for: $0) ?? .none }
+        view.onOpenHub = { [weak self] in self?.hub.show($0) }
+        view.quiet = quiet
+        hub.reports = Reports(store: store, brain: brain, time: timekeeper)
+        hub.problems = { [weak self] in self?.watchdog.problems[$0] ?? [] }
+        store.onEvent = { [weak self] in self?.timekeeper.ping($0) }
+        statusBar = StatusBar(store: store, brain: brain, quiet: quiet)
+        statusBar.openHub = { [weak self] in self?.hub.show($0) }
+        statusBar.openAgent = { [weak self] id in
+            self?.hub.show()
+            self?.hub.agentFilter = id
+        }
+        statusBar.openMessage = { [weak self] in self?.view.open($0) }
+        quiet.onEnd = { [weak self] since in self?.quietEnded(since) }
+        _ = watchdog
         gitlab = GitLabWatch()
         github = GitHubWatch()
         clickup = ClickUpWatch(store: store, works: works)
@@ -103,14 +136,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.vitals.joy += 0.3
         }
 
-        Hotkey.handler = { [weak self] in self?.view.toggleChat() }
-        Hotkey.register()
+        Hotkey.register(1, key: kVK_Space) { [weak self] in self?.view.toggleChat() }
+        Hotkey.register(2, key: kVK_ANSI_I) { [weak self] in self?.hub.toggle() }
 
         Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             guard let self else { return }
+            if self.hub.isOpen || self.quiet.active {
+                if self.panel.isVisible { self.panel.orderOut(nil) }
+                self.followers.hide()
+                return
+            }
+            if !self.panel.isVisible { self.panel.orderFrontRegardless() }
             self.followers.update(leader: self.panel, leaderView: self.view)
         }
         Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in self?.everyMinute() }
+    }
+
+    /// Nach dem Ruhe-Modus eine einzige Zusammenfassung statt vieler Blasen.
+    private func quietEnded(_ since: Date) {
+        let missed = store.inbox.active.filter { !$0.read && $0.updated >= since }
+        guard !missed.isEmpty else { return }
+        let questions = missed.filter(\.question).count
+        var text = missed.count == 1 ? "Eine neue Meldung" : "\(capitalized(numberWord(missed.count, feminine: true))) neue Meldungen"
+        if questions > 0 { text += ", davon \(questions == 1 ? "eine Rückfrage" : "\(numberWord(questions, feminine: true)) Rückfragen")" }
+        view.showReply(text + ". Doppelklick öffnet die Inbox.", title: "🤫 Ruhe vorbei", seconds: 20)
     }
 
     private func react(_ kind: Signal.Kind) {
@@ -150,7 +199,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .implemented, .nothingToDo:
             let what = item.status == .implemented ? "ist umgesetzt" : "braucht laut Agent keine Änderung"
             store.post(Session(id: "fb-\(item.md.lastPathComponent)", mood: .done, project: works.topic(forProject: item.project),
-                               agent: "Feedback", text: "„\(item.headline)“ \(what). Schau's dir an: Rechtsklick auf \(who ?? "das Mini") → Passt oder Nachbessern.",
+                               agent: "Feedback", text: "„\(item.headline)“ \(what). Schau's dir an, dann Passt oder Nachbessern (Doppelklick → Inbox).",
                                icon: "👀", click: ["-execute", "open -b com.microsoft.VSCode \(shellQuote(item.md.path))"], isAgent: false))
         default:
             break
@@ -181,7 +230,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let active = now.timeIntervalSince(store.lastActivity) < 15 * 60
         let day = ISO8601DateFormatter.string(from: now, timeZone: .current, formatOptions: [.withFullDate])
         let defaults = UserDefaults.standard
-        guard active, view.reply == nil, view.chatField == nil else { return }
+        reportNudges(day: day, hour: hour, weekday: weekday, active: active)
+        guard active, !quiet.active, view.reply == nil, view.chatField == nil else { return }
 
         if hour >= 20, defaults.string(forKey: "evening") != day {
             defaults.set(day, forKey: "evening")
@@ -203,6 +253,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self, let text, self.view.reply == nil, self.view.chatField == nil else { return }
                 self.view.showReply(text, title: "📌 Erinnerung", seconds: 25)
             }
+        }
+    }
+}
+
+extension AppDelegate {
+    /// Werktags ab 8 Uhr beim ersten Lebenszeichen die Standup-Notiz, ab 18 Uhr der Tagesrückblick mit den Zeiten,
+    /// je einmal pro Tag als Meldung, die den Bericht öffnet.
+    func reportNudges(day: String, hour: Int, weekday: Int, active: Bool) {
+        guard active, (2...6).contains(weekday), let reports = hub.reports else { return }
+        let d = UserDefaults.standard
+        if hour >= 8, d.string(forKey: "standup") != day {
+            d.set(day, forKey: "standup")
+            let n = reports.done(on: Reports.previousWorkday()).count
+            store.post(Session(id: "report-standup-\(day)", mood: .done, project: "Standup-Notiz", agent: "Bericht",
+                               text: n == 0 ? "Die Notiz für heute ist fertig." : "Fertig: \(n) Aufgaben vom letzten Werktag, dazu Plan und Blocker für heute.",
+                               icon: "📋", click: ["-hub", "report"], isAgent: false))
+        }
+        if hour >= 18, d.string(forKey: "review") != day {
+            d.set(day, forKey: "review")
+            let times = timekeeper.times(Date())
+            let total = times.reduce(0) { $0 + $1.seconds }
+            guard total >= 1800 else { return }
+            store.post(Session(id: "report-review-\(day)", mood: .done, project: "Tagesrückblick", agent: "Bericht",
+                               text: "Heute \(duration(total)) an \(times.count) Aufgaben erfasst. Zeiten prüfen und nach ClickUp buchen?",
+                               icon: "🕔", click: ["-hub", "report"], isAgent: false))
         }
     }
 }

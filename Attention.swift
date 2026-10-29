@@ -88,6 +88,53 @@ final class Brain {
         s.isAgent ? works.topic(forProject: s.project) : s.label
     }
 
+    // MARK: Inbox
+
+    /// Überschrift einer Meldung: bei Agenten Spitzname und Aufgabe, sonst die Aufgabe.
+    func title(_ m: Message) -> String {
+        if m.id.hasPrefix("warn-") { return "\(store.name(for: String(m.id.dropFirst(5)))) · \(works.topic(forProject: m.project))" }
+        return m.isAgent ? "\(store.name(for: m.id)) · \(works.topic(forProject: m.project))" : m.project
+    }
+
+    func feedbackItem(_ m: Message) -> FeedbackItem? {
+        guard m.id.hasPrefix("fb-") else { return nil }
+        return feedback.items.first { "fb-" + $0.md.lastPathComponent == m.id }
+    }
+
+    /// Aufgabe einer Meldung: MR-Signale und Tickets über ihren Schlüssel, Agenten und Feedback über das Projekt.
+    func workKey(_ m: Message) -> String {
+        if m.id.hasPrefix("work-") { return String(m.id.dropFirst(5)) }
+        if m.id.hasPrefix("ticket-") { return String(m.id.dropFirst(7)) }
+        if m.id.hasPrefix("attn-"), let k = items.first(where: { "attn-" + $0.id == m.id })?.workKey { return k }
+        if let f = feedbackItem(m) { return works.key(forProject: f.project) }
+        return works.key(forProject: m.project)
+    }
+
+    /// Der Punkt aus „Du bist dran“, der zu einer Meldung gehört; seine Einstufung gilt auch für die Meldung.
+    func attention(for m: Message) -> Attention? {
+        let you = items.filter { $0.who == .you }
+        if m.isAgent { return you.first { $0.session == m.id } }
+        if let f = feedbackItem(m) { return you.first { $0.feedback?.md == f.md } }
+        if m.id.hasPrefix("attn-") { return you.first { "attn-" + $0.id == m.id } }
+        let k = workKey(m)
+        let order: [Triage.Rank: Int] = [.now: 0, .later: 1, .hidden: 2]
+        return you.filter { $0.workKey == k && $0.session == nil && $0.feedback == nil }
+            .min { order[rank($0)]! < order[rank($1)]! }
+    }
+
+    /// Jetzt dran oder kann warten, und warum.
+    func rank(_ m: Message) -> (rank: Triage.Rank, why: String) {
+        if m.pinned { return (.now, "Von dir angeheftet.") }
+        if let p = m.priority { return (p, "Von dir als „\(p == .now ? "jetzt dran" : "kann warten")“ eingestuft.") }
+        if let a = attention(for: m) {
+            let r = rank(a)
+            let by = triage.ranked(a) ? "Haiku stuft" : "Die Grundregel stuft"
+            let label = ["now": "dringend", "later": "kann warten", "hidden": "Rauschen"][r.rawValue] ?? ""
+            return (r, "\(by) „\(a.phrase)“ als \(label) ein.")
+        }
+        return m.question ? (.now, "Wartet auf dich.") : (.later, "Nur zur Info, niemand ist blockiert.")
+    }
+
     // MARK: Liste
 
     private func build() -> [Attention] {

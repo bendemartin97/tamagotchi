@@ -34,6 +34,11 @@ final class PetView: NSView, NSTextFieldDelegate {
     /// Fenster (Cocoa-Koordinaten), auf dessen Oberkante er gerade sitzt.
     var perch: NSRect?
 
+    /// Doppelklick öffnet die Übersicht (Hub); ein einfacher Klick wartet so lange, bis klar ist, dass keiner kommt.
+    var onOpenHub: ((Hub.Tab?) -> Void)?
+    var quiet: Quiet?
+    private var clickTimer: Timer?
+
     private var dragOrigin: NSPoint?
     private var windowOrigin: NSPoint = .zero
     private var dragged = false
@@ -71,7 +76,7 @@ final class PetView: NSView, NSTextFieldDelegate {
     var prop: Prop {
         if Date() < partyUntil { return .party }
         guard let items = brain?.items else { return .none }
-        if mood == .waiting, let s = store.pending.first, s.mood == .waiting, s.isAgent { return .letter }
+        if mood == .waiting, let m = store.inbox.fresh.first, m.question, m.isAgent { return .letter }
         if items.contains(where: { $0.feedback?.status == .question }) && mood != .working { return .letter }
         if (mood == .idle || mood == .working) && items.contains(where: { $0.group == "pipeline" }) { return .hourglass }
         return .none
@@ -120,12 +125,11 @@ final class PetView: NSView, NSTextFieldDelegate {
         } else if let reply {
             drawBubble(in: bounds, bottom: bottom, title: reply.title, body: reply.text,
                        accent: pendingTask != nil ? Palette.alert : Palette.body)
-        } else if mood == .waiting || mood == .done, let s = store.pending.first {
-            let icon = s.icon.isEmpty ? (s.mood == .waiting ? "✋" : "✅") : s.icon
-            let more = store.pending.count > 1 ? "  +\(store.pending.count - 1)" : ""
-            let body = s.mood == .waiting && s.isAgent && !s.detail.isEmpty ? "will: \(s.detail)\n\(s.text)" : s.text
-            drawBubble(in: bounds, bottom: bottom, title: "\(icon) \(bubbleTitle(s))\(more)", body: body,
-                       accent: s.mood == .waiting ? Palette.alert : Palette.body)
+        } else if mood == .waiting || mood == .done, let m = store.inbox.fresh.first {
+            let count = store.inbox.fresh.count
+            let more = count > 1 ? "  +\(count - 1)" : ""
+            drawBubble(in: bounds, bottom: bottom, title: "\(m.symbol) \(brain?.title(m) ?? m.project)\(more)", body: m.text,
+                       accent: m.question ? Palette.alert : m.isAgent ? Look.agent(store.name(for: m.id)).body : Palette.body)
         }
     }
 
@@ -281,13 +285,25 @@ final class PetView: NSView, NSTextFieldDelegate {
             }
             return
         }
+        clickTimer?.invalidate()
+        clickTimer = nil
+        if event.clickCount >= 2 {
+            onOpenHub?(nil)
+            return
+        }
+        clickTimer = Timer.scheduledTimer(withTimeInterval: NSEvent.doubleClickInterval, repeats: false) { [weak self] _ in
+            self?.clickTimer = nil
+            self?.click()
+        }
+    }
+
+    private func click() {
         if let task = pendingTask, reply != nil {
             pendingTask = nil
             tasks.start(task)
             showReply("Läuft. Ich sag Bescheid, wenn's durch ist.", seconds: 5)
-        } else if let s = store.pending.first, reply == nil, chatField == nil {
-            store.ack(s.id)
-            if s.click.first == "-task", s.click.count == 2 { offerTask(s.click[1], text: s.text) } else { performClick(s.click) }
+        } else if let m = store.inbox.fresh.first, reply == nil, chatField == nil {
+            open(m)
         } else if chatField != nil {
             closeChat()
         } else {
@@ -313,6 +329,8 @@ final class PetView: NSView, NSTextFieldDelegate {
         info("Futter \(vitals.dots(vitals.food))   Laune \(vitals.dots(vitals.joy))")
         info(State.shared.checkedLine)
         menu.addItem(.separator())
+        let unread = store.inbox.unreadCount
+        item("Inbox\(unread > 0 ? " (\(unread) ungelesen)" : "") …  (Doppelklick)", #selector(openHub))
         item("Was braucht mich gerade?", #selector(showSummary))
         if let brain {
             let sections: [(Attention.Who, String)] = [(.you, "Du bist dran"), (.others, "Andere sind dran"), (.auto, "Läuft automatisch")]
@@ -361,14 +379,25 @@ final class PetView: NSView, NSTextFieldDelegate {
         item("Füttern", #selector(feed))
         menu.addItem(.separator())
         item("Herumlaufen", #selector(toggleWalk), on: walkEnabled)
-        item("Alles quittieren", #selector(ackAll))
+        if let quiet { menu.addItem(quietMenu(quiet)) }
+        item("Alles in der Inbox erledigt", #selector(ackAll))
         item("Zurück in die Ecke", #selector(resetPosition))
         menu.addItem(.separator())
         menu.addItem(withTitle: "Beenden", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
         NSMenu.popUpContextMenu(menu, with: event, for: self)
     }
 
-    @objc func ackAll() { store.ackAll() }
+    @objc func ackAll() { store.inbox.archiveAll(store.inbox.active.map(\.id)) }
+
+    @objc func openHub() { onOpenHub?(nil) }
+
+    /// Klickziel einer Meldung ausführen und sie als gelesen markieren; erledigt wird sie erst in der Inbox.
+    func open(_ m: Message) {
+        store.inbox.markRead(m.id)
+        store.dismiss(m.id)
+        if m.click.first == "-hub" { onOpenHub?(.report) }
+        else if m.click.first == "-task", m.click.count == 2 { offerTask(m.click[1], text: m.text) } else { performClick(m.click) }
+    }
 
     @objc func showSummary() {
         brain?.refresh()
@@ -392,7 +421,8 @@ final class PetView: NSView, NSTextFieldDelegate {
             offerTask(task, text: a.phrase + ".")
         } else if let id = a.session, let s = store.sessions[id] {
             performClick(s.click)
-            if s.mood != .working { store.ack(id) }
+            store.inbox.markRead(id)
+            store.dismiss(id)
         } else if let url = a.url {
             openURL(url)
         }
@@ -547,6 +577,8 @@ final class PetView: NSView, NSTextFieldDelegate {
             "\(bubbleTitle(s)) \(label[s.mood] ?? "")\(s.icon.isEmpty ? "" : " " + s.icon) seit \(Int(Date().timeIntervalSince(s.updated) / 60)) min"
         }
         var parts = [f.string(from: Date()), sessions.isEmpty ? "keine aktiven Sessions" : sessions.joined(separator: "; ")]
+        let unread = store.inbox.active.filter { !$0.read }.prefix(8).map { "\($0.symbol) \(brain?.title($0) ?? $0.project): \(shorten($0.text, 80))" }
+        if !unread.isEmpty { parts.append("Ungelesen in der Inbox: " + unread.joined(separator: "; ")) }
         if let brain {
             parts.append("Was Martin braucht: \(brain.summary)")
             let you = brain.forYou.map(\.phrase)

@@ -1,7 +1,7 @@
 import AppKit
 
-/// Ruhe-Modus: keine Haustiere, keine Blasen, solange Martin den Bildschirm teilt oder ihn von Hand einschaltet.
-/// Meldungen sammeln sich in der Inbox; danach gibt es eine einzige Zusammenfassung.
+/// Quiet mode: no pets, no bubbles while Martin is sharing their screen or has turned it on manually.
+/// Notifications collect in the inbox; afterwards there is a single summary.
 final class Quiet {
     var onEnd: ((Date) -> Void)?
     private(set) var active = false
@@ -36,8 +36,8 @@ final class Quiet {
         active = on
     }
 
-    /// Erkennt Bildschirmfreigabe an den Fenstern, die Zoom, Teams, Meet (Chrome) und Slack dabei zeigen.
-    /// Braucht die Bildschirmaufnahme-Freigabe, die das Tamagotchi für den Chat ohnehin hat.
+    /// Detects screen sharing from the windows that Zoom, Teams, Meet (Chrome) and Slack show while sharing.
+    /// Needs the screen recording permission that the Tamagotchi already has for the chat.
     static func screenSharing() -> Bool {
         guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else { return false }
         for w in list {
@@ -53,7 +53,7 @@ final class Quiet {
     }
 }
 
-/// Menüleiste: Zähler für wartende Agenten, rote Pipelines und ungelesene Meldungen, im Menü das Wichtigste.
+/// Menu bar: counters for waiting agents, red pipelines and unread notifications, with the most important items in the menu.
 final class StatusBar: NSObject, NSMenuDelegate {
     let store: Store
     let brain: Brain
@@ -75,24 +75,49 @@ final class StatusBar: NSObject, NSMenuDelegate {
         Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.update() }
     }
 
+    /// App icon for the menu bar: only the squircle (without the transparent margin), 18 pt, optionally with a dot.
+    private func icon(dot: NSColor?) -> NSImage {
+        let app = NSApp.applicationIconImage ?? NSImage()
+        let size = NSSize(width: 18, height: 18)
+        return NSImage(size: size, flipped: false) { r in
+            let inset = app.size.width * 100 / 1024
+            app.draw(in: r, from: NSRect(origin: .zero, size: app.size).insetBy(dx: inset, dy: inset), operation: .sourceOver, fraction: 1)
+            if let dot {
+                let d = NSRect(x: r.maxX - 6, y: r.maxY - 6, width: 6, height: 6)
+                NSColor.black.withAlphaComponent(0.5).setFill()
+                NSBezierPath(ovalIn: d.insetBy(dx: -1, dy: -1)).fill()
+                dot.setFill()
+                NSBezierPath(ovalIn: d).fill()
+            }
+            return true
+        }
+    }
+
+    /// Icon only; a dot shows whether something is waiting (orange) or broken (red). The numbers are in the tooltip.
+    /// When the screen is shared, the audience also sees the menu bar: so no dot and no tooltip then.
     private func update() {
         guard let button = item.button else { return }
-        // Bei geteiltem Bildschirm sieht das Publikum die Menüleiste mit: dann nur das Symbol.
         if quiet.active {
-            button.title = "🤫"
+            button.image = icon(dot: nil)
+            button.toolTip = "Ruhe-Modus"
+            shown = nil
             return
         }
         let waiting = store.agents.filter { $0.mood == .waiting }.count
         let working = store.agents.filter { $0.mood == .working }.count
         let red = State.shared.data.changes.values.filter { $0.isOpen && $0.mine && $0.pipeline == "failed" }.count
         let unread = store.inbox.unreadCount
-        var parts: [String] = []
-        if waiting > 0 { parts.append("✋\(waiting)") }
-        if working > 0 { parts.append("⚙️\(working)") }
-        if red > 0 { parts.append("🔴\(red)") }
-        if unread > 0 { parts.append("📥\(unread)") }
-        button.title = parts.isEmpty ? "🐾" : parts.joined(separator: " ")
+        let dot: NSColor? = red > 0 ? .systemRed : waiting > 0 ? .systemOrange : nil
+        let key = "\(dot?.description ?? "")"
+        if key != shown || button.image == nil {
+            shown = key
+            button.image = icon(dot: dot)
+        }
+        button.title = ""
+        button.toolTip = "\(waiting) warten · \(working) arbeiten · \(red) Pipelines rot · \(unread) ungelesen"
     }
+
+    private var shown: String?
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
@@ -130,7 +155,7 @@ final class StatusBar: NSObject, NSMenuDelegate {
     }
 }
 
-/// Untermenü „Ruhe-Modus“, auch im Kontextmenü des Haustiers.
+/// Submenu "Ruhe-Modus" (quiet mode), also in the pet's context menu.
 func quietMenu(_ quiet: Quiet) -> NSMenuItem {
     let sub = NSMenu()
     if quiet.active {
